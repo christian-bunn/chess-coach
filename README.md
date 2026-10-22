@@ -99,17 +99,27 @@ These can go in `.env` or the environment:
 - **Streaming:** comments stream into the coach panel. If Claude fails or is slow, you keep the built-in
   comment.
 
+## The coach guides you
+
+When it's your move, the coach tells you what to focus on, without naming the move. One message covers
+what the opponent just did and what you should be thinking about next. For example: deal with a threat,
+take a chance to win material, castle while your king is still in the center, finish developing, fight
+for the center, or bring your rooks to open files.
+
+The priority comes from the engine's best move, worked out in code (`backend/app/guide.py`). The move
+itself is never given to Claude, so the guidance points the way without giving away the answer.
+
 ## How much the coach says
 
-By default the coach speaks up only at **key moments**. Every move still gets its grade badge, but full
-comments are kept for:
-- your mistakes, blunders and missed wins;
-- your great moves, missed mates, and finding the right move on a retry;
-- opponent moves that create a real threat ("Watch out: your queen on h5 is under attack") or that you can
-  punish.
+By default the coach speaks up only at **key moments**, and every move still gets its grade badge.
 
-Inaccuracies get a short built-in note. Under **⚙ Settings**, set **Coach comments** to "on every move" for a
-comment on everything (that uses more of your plan).
+- **Comments on your moves:** your mistakes, blunders and missed wins, your great moves, missed mates, and
+  finding the right move on a retry. Inaccuracies get a short built-in note.
+- **Guidance before your move:** when there's a threat or a chance, when the priority changes (at most
+  every two moves), or when it's been quiet for four moves.
+
+Under **⚙ Settings**, set **Coach comments** to "on every move" for comments and guidance on every move
+(that uses more of your plan).
 
 The newest message is outlined. If you scroll up to reread something, new messages won't pull you away, and
 a **↓ Latest** button takes you back.
@@ -148,15 +158,15 @@ starts a new line, and Forward then has nothing to replay.
 
 ## Hints and questions
 
-**Hint button:** each press on the same move reveals a little more:
+Two hint buttons, usable on each of your moves:
 
-1. **The idea:** there's a checkmate, a way to win material, a threat to deal with, or nothing tactical. It
-   can also tell you that the material you're trying to save can't be kept.
-2. **The piece** to move, and whether the move is a capture or a check.
-3. **The move itself,** with an arrow on the board.
+- **💡 Hint:** a nudge toward the idea. It might say there's a checkmate, a way to win material, a threat to
+  deal with, or what to focus on in a quiet position (the same priority the guidance uses). Its facts don't
+  include where any pieces are, so it can't name the piece even by accident.
+- **♟ Show piece:** highlights the piece to move on the board. Press it again (**➜ Show move**) and an
+  arrow shows where it goes, with a sentence on why the move works.
 
-Each level's facts contain only what that level may reveal, so a level-1 hint can't name the piece even by
-accident. Hints work without Claude too, using built-in text.
+Hints work without Claude too, using built-in text.
 
 **Questions** (needs Claude): type things like "what about Nf5?", "is my knight safe?", "can I castle?" or
 "why was that a blunder?".
@@ -187,6 +197,7 @@ cd backend && .venv/bin/python -m pytest
 positions through Stockfish, for example a hung queen, allowing mate, and missing mate in one.
 `tests/test_facts.py` checks the fact sheet, including that hidden answers really are absent.
 `tests/test_advice.py` checks what each hint level reveals and how moves are spotted in questions.
+`tests/test_guide.py` checks the guidance picks the right priority and never contains the move.
 `tests/test_explain.py` covers the API path, using a fake client plus the real SDK over a mock transport.
 `tests/test_claude_code.py` covers the Claude Code path against a fake `claude` program. The test suite
 never calls Claude, so it spends neither plan usage nor API credit.
@@ -226,11 +237,12 @@ Thresholds are constants at the top of `backend/app/grading.py`.
 ```
 backend/app/
   main.py      FastAPI routes: /api/levels, /api/config, /api/analyze, /api/grade, /api/bot-move,
-               /api/explain, /api/hint, /api/ask
+               /api/explain, /api/guide, /api/hint, /api/ask, /api/speech, /api/voices
   engine.py    Two Stockfish processes (analysis + opponent), position cache, null-move threat search
   grading.py   win%, material counting, classification -> MoveGrade
   facts.py     The plain-language fact sheet Claude explains from
   advice.py    Facts for hints (by level) and for questions, and spotting moves named in a question
+  guide.py     The coach's guidance before your move: the priority for the position, and its facts
   prompts.py   System prompts for move comments, hints and questions
   explain.py   Claude through the API (system prompt, streaming, refusal fallback)
   claude_code.py  Claude through Claude Code's headless mode, on your Claude plan

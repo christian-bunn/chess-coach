@@ -29,9 +29,10 @@ from .config import Settings, anthropic_credentials_present
 from .engine import EngineService
 from .explain import ExplainError, Explainer
 from .facts import fact_sheet
+from .guide import guide_facts, plan
 from .grading import Eval, MoveGrade, grade_move, san_line
 from .levels import DEFAULT_LEVEL, LEVELS, LEVELS_BY_ID
-from .prompts import CHAT_PROMPT, COMMENT_PROMPT, HINT_PROMPT
+from .prompts import CHAT_PROMPT, COMMENT_PROMPT, GUIDE_PROMPT, HINT_PROMPT
 from .speech import MAX_TEXT, Speech, voice_label
 
 log = logging.getLogger(__name__)
@@ -88,6 +89,10 @@ class ExplainIn(MovesIn):
     student_color: Literal["white", "black"]
     # False while the student is being offered a retry, so the comment can't give the answer away.
     reveal_best: bool = True
+
+
+class GuideIn(MovesIn):
+    student_color: Literal["white", "black"]
 
 
 class HintIn(MovesIn):
@@ -248,7 +253,10 @@ async def bot_move(body: BotMoveIn, request: Request) -> MoveGrade:
     result = await _grade(engines, board, move)
     after_board = board.copy()
     after_board.push(move)
-    result.message = describe_opponent_move(result, threat_warning(after_board, await engines.threat(after_board)))
+    threat = await engines.threat(after_board)
+    result.message = describe_opponent_move(result, threat_warning(after_board, threat))
+    if (next_plan := plan(after_board, await engines.analyse(after_board), threat)) is not None:
+        result.guide_topic, result.guide_urgent = next_plan.topic, next_plan.urgent
     return result
 
 
@@ -295,6 +303,7 @@ def _stream(
     system: str,
     fallback: str,
     first: dict | None = None,
+    use_claude: bool = True,
 ) -> StreamingResponse:
     """Stream Claude's text as newline-delimited JSON events: optionally `first`, then {"type": "text"}
     chunks, {"type": "reset"} to discard what came so far, and a final {"type": "done", "text",
@@ -305,7 +314,7 @@ def _stream(
     async def events() -> AsyncIterator[str]:
         if first is not None:
             yield _event(first)
-        if explainer.available:
+        if use_claude and explainer.available:
             try:
                 async for event in explainer.stream(await prompt(), system):
                     yield _event({**event, "source": "claude"} if event["type"] == "done" else event)
@@ -324,8 +333,9 @@ def _stream(
 
 @app.post("/api/hint")
 async def hint_endpoint(body: HintIn, request: Request) -> StreamingResponse:
-    """A hint for the student's move. Level 1 names the idea, 2 the piece, 3 the move; the last
-    level's stream starts with {"type": "move", "uci"} so the board can show an arrow."""
+    """A hint for the student's move. Level 1 names the idea. Level 2 shows the piece: its stream
+    starts with {"type": "piece", "square"} for the board, with a short built-in line (no Claude, so it's
+    instant). Level 3 shows the move: {"type": "move", "uci"} first, then Claude's reason it works."""
     board = _replay(body.moves)
     student_color = chess.WHITE if body.student_color == "white" else chess.BLACK
     if board.turn != student_color or board.is_game_over(claim_draw=True):
@@ -333,13 +343,41 @@ async def hint_endpoint(body: HintIn, request: Request) -> StreamingResponse:
     engines = _engines(request)
     analysis = await engines.analyse(board)
     threat = await engines.threat(board)
-    result = hint(board, analysis, threat, body.level, student_color)
+    result = hint(board, analysis, threat, body.level, student_color, plan(board, analysis, threat))
 
     async def facts() -> str:
         return result.facts
 
+    if body.level == 2:
+        return _stream(request.app.state.explainer, facts, HINT_PROMPT, result.template,
+                       {"type": "piece", "square": result.square}, use_claude=False)
     first = {"type": "move", "uci": result.move} if result.move else None
     return _stream(request.app.state.explainer, facts, HINT_PROMPT, result.template, first)
+
+
+@app.post("/api/guide")
+async def guide(body: GuideIn, request: Request) -> StreamingResponse:
+    """The coach's guidance before the student's move: what matters and what to aim for, without the
+    move itself. The stream starts with {"type": "topic", "topic", "urgent"}."""
+    board = _replay(body.moves)
+    student_color = chess.WHITE if body.student_color == "white" else chess.BLACK
+    if board.turn != student_color or board.is_game_over(claim_draw=True):
+        raise HTTPException(409, "It isn't your move")
+    engines = _engines(request)
+    analysis = await engines.analyse(board)
+    threat = await engines.threat(board)
+    the_plan = plan(board, analysis, threat)
+    last = None
+    if board.move_stack:
+        before = board.copy()
+        before.pop()
+        last = await _grade(engines, before, board.peek())
+
+    async def facts() -> str:
+        return guide_facts(board, the_plan, last, student_color)
+
+    first = {"type": "topic", "topic": the_plan.topic, "urgent": the_plan.urgent}
+    return _stream(request.app.state.explainer, facts, GUIDE_PROMPT, the_plan.template, first)
 
 
 @app.post("/api/ask")

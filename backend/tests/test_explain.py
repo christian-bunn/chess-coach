@@ -159,3 +159,10 @@ def test_real_sdk_parses_the_stream():
     assert events[-1] == {"type": "done", "text": "Nice, that develops."}
     assert requests[0].headers["anthropic-beta"] == "server-side-fallback-2026-07-01"
     assert json.loads(requests[0].content)["fallbacks"] == "default"
+
+
+def test_every_prompt_rules_out_personal_details():
+    from app.prompts import CHAT_PROMPT, COMMENT_PROMPT, GUIDE_PROMPT, HINT_PROMPT
+
+    for prompt in (COMMENT_PROMPT, HINT_PROMPT, CHAT_PROMPT, GUIDE_PROMPT):
+        assert "Never address the student by name" in prompt

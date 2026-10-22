@@ -347,6 +347,9 @@ button.move-ref:focus-visible {
 .bubble.hint {
   border-left: 3px solid #f0c03a;
 }
+.bubble.guide {
+  border-left: 3px solid var(--accent);
+}
 .hint-row {
   display: flex;
   align-items: center;

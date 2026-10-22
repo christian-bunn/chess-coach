@@ -40,6 +40,9 @@ export interface MoveGrade {
   delivers_mate: boolean
   retry_suggested: boolean
   message: string | null
+  /** For the opponent's moves: what the student should focus on next, and whether it's urgent. */
+  guide_topic?: string | null
+  guide_urgent?: boolean
 }
 
 export interface Level {
@@ -90,6 +93,10 @@ export type CoachEvent =
   | { type: 'reset' }
   /** The suggested move, sent first by the last hint level so the board can show it. */
   | { type: 'move'; uci: string }
+  /** The piece to move, sent by the "show piece" hint. */
+  | { type: 'piece'; square: string }
+  /** What the coach's guidance is about, sent first by /guide. */
+  | { type: 'topic'; topic: string; urgent: boolean }
   | { type: 'done'; text: string; source: 'claude' | 'template' }
 
 interface PositionRequest {
@@ -106,6 +113,8 @@ export interface HintRequest extends PositionRequest {
   /** 1: the idea, 2: the piece, 3: the move. */
   level: number
 }
+
+export type GuideRequest = PositionRequest
 
 export interface AskRequest extends PositionRequest {
   question: string
@@ -148,6 +157,8 @@ export const api = {
   /** The coach's comment on the last move in `moves`. */
   explain: (body: ExplainRequest, onEvent: OnEvent, signal?: AbortSignal) => streamCoach('/explain', body, onEvent, signal),
   hint: (body: HintRequest, onEvent: OnEvent, signal?: AbortSignal) => streamCoach('/hint', body, onEvent, signal),
+  /** The coach's guidance before the student's move. */
+  guide: (body: GuideRequest, onEvent: OnEvent, signal?: AbortSignal) => streamCoach('/guide', body, onEvent, signal),
   ask: (body: AskRequest, onEvent: OnEvent, signal?: AbortSignal) => streamCoach('/ask', body, onEvent, signal),
   analyze: (moves: string[], signal?: AbortSignal) => request<Analysis>('/analyze', { moves }, signal),
   grade: (moves: string[], signal?: AbortSignal) => request<MoveGrade>('/grade', { moves }, signal),

@@ -18,6 +18,8 @@ interface BoardProps {
   caption?: string
   /** Animate pieces to their new squares (off for instant previews). */
   animate?: boolean
+  /** A square to draw attention to, e.g. the piece a hint points at. */
+  highlight?: string | null
 }
 
 const LAST_MOVE = 'rgba(255, 255, 51, 0.42)'
@@ -37,6 +39,7 @@ export function Board({
   onMove,
   caption,
   animate = true,
+  highlight = null,
 }: BoardProps) {
   const [selected, setSelected] = useState<Square | null>(null)
   const [promotion, setPromotion] = useState<{ from: Square; to: Square } | null>(null)
@@ -71,6 +74,7 @@ export function Board({
     style(lastMove.from, { backgroundColor: LAST_MOVE })
     style(lastMove.to, { backgroundColor: LAST_MOVE })
   }
+  if (highlight) style(highlight, { boxShadow: 'inset 0 0 0 5px #f0c03a', backgroundColor: 'rgba(240, 192, 58, 0.45)' })
   if (game.inCheck()) {
     const king = game.findPiece({ type: 'k', color: game.turn() })[0]
     if (king) style(king, { backgroundImage: CHECK })

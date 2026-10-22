@@ -135,6 +135,7 @@ export default function App() {
             }
             onMove={actions.playMove}
             caption={preview?.label}
+            highlight={preview ? null : coach.pieceHint}
             animate={!instant}
           />
         </div>
@@ -173,9 +174,11 @@ export default function App() {
                 onShowBest={() => actions.tryAgain(true)}
                 onContinue={actions.continueGame}
                 onRetryFailed={actions.retryFailed}
-                canHint={coach.canHint}
-                hintsUsed={coach.hintsUsed}
-                onHint={actions.requestHint}
+                canIdea={coach.canIdea}
+                onIdea={actions.requestIdea}
+                canPiece={coach.canPiece}
+                pieceStep={coach.pieceStep}
+                onPiece={actions.revealPiece}
                 onAsk={actions.ask}
                 onPreview={showPreview}
               />

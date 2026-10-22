@@ -99,8 +99,11 @@ class TestHintLevels:
         reply.push(best.move)
         line = (best.move, reply.parse_san("Nxd5"))
         analysis = Analysis(board.turn, Cp(20), (Line(Cp(20), line),))
-        h = hint(board, analysis, None, 1, chess.WHITE)
-        assert "can't keep all the material: it gives back about 1 point" in h.facts
+        passed = board.copy(stack=False)
+        passed.push(chess.Move.null())
+        threat = Line(Cp(100), (passed.parse_san("Nxd5"),))  # Black threatens to take the pawn back
+        h = hint(board, analysis, threat, 1, chess.WHITE)
+        assert "can't keep the pawn on d5: every good move lets it go" in h.facts
         assert h.template.startswith("You can't hold on to everything here.")
 
     def test_quiet_position(self):
@@ -166,3 +169,13 @@ class TestPositionFacts:
 )
 def test_asks_for_a_move(question, wants):
     assert asks_for_a_move(question) is wants
+
+
+def test_quiet_hint_follows_the_coachs_plan():
+    from app.guide import plan
+
+    board = board_after("e4", "e5", "Nf3", "Nc6", "Bc4", "Bc5", "d3", "Nf6", "Nc3", "d6")
+    analysis = fake_analysis(board, ("O-O", Cp(30)))
+    h = hint(board, analysis, None, 1, chess.WHITE, plan(board, analysis, None))
+    assert "getting the king to safety" in h.facts
+    assert h.template == "Your king is still in the center. This is a good moment to castle and keep it safe."

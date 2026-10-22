@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import chess
 import chess.engine
@@ -19,24 +20,31 @@ from .facts import (
 )
 from .grading import Eval, MoveGrade, material_balance, material_change, numbered_san, win_percent
 
+if TYPE_CHECKING:
+    from .guide import Plan
+
 HINT_LEVELS = 3
 # Questions get at most this many of their mentioned moves checked by the engine.
 MAX_MENTIONED_MOVES = 3
 
 
-def _game_header(board: chess.Board, student_color: chess.Color) -> list[str]:
+def game_header(board: chess.Board, student_color: chess.Color, *, pieces: bool = True) -> list[str]:
+    """Who plays what and the moves so far; with `pieces`, also where every piece stands."""
     to_move = "the student" if board.turn == student_color else "the computer opponent"
-    return [
+    header = [
         f"The student plays {color_name(student_color)}; the computer opponent plays {color_name(not student_color)}.",
         f"It is {color_name(board.turn)}'s move ({to_move}).",
         "Moves so far: " + (board.root().variation_san(board.move_stack) or "(none yet)"),
-        f"Position (FEN): {board.fen()}",
-        "Pieces: " + piece_list(board, chess.WHITE) + ". " + piece_list(board, chess.BLACK) + ".",
-        _material_now(board),
     ]
+    if pieces:
+        header += [
+            f"Position (FEN): {board.fen()}",
+            "Pieces: " + piece_list(board, chess.WHITE) + ". " + piece_list(board, chess.BLACK) + ".",
+        ]
+    return header + [material_now(board)]
 
 
-def _material_now(board: chess.Board) -> str:
+def material_now(board: chess.Board) -> str:
     balance = material_balance(board, chess.WHITE)
     if balance == 0:
         return "Material is level."
@@ -49,12 +57,16 @@ def _material_now(board: chess.Board) -> str:
 
 @dataclass(frozen=True)
 class Hint:
+    """Level 1 is the idea (Claude writes it), level 2 the piece to move (shown on the board, no Claude
+    needed), level 3 the move itself with Claude's reason why it works."""
+
     facts: str  # what Claude may use for this level
-    template: str  # the built-in hint, used when Claude isn't available
+    template: str  # the built-in hint, used when Claude isn't available (and always at level 2)
     move: str | None  # UCI of the suggested move, only at the last level (for the arrow)
+    square: str | None = None  # the piece to move, from level 2 on (for the highlight)
 
 
-def _idea(board: chess.Board, analysis: Analysis, threat_text: str | None) -> tuple[str, int]:
+def idea(board: chess.Board, analysis: Analysis, threat_text: str | None) -> tuple[str, int]:
     """What the best line is about: ("mate", moves), ("material", points won), ("defend", 0) when it
     parries the opponent's threat, ("concede", points lost) when even the best line can't keep the
     material, or ("position", 0)."""
@@ -64,12 +76,13 @@ def _idea(board: chess.Board, analysis: Analysis, threat_text: str | None) -> tu
     gain = material_change(board, analysis.best.pv, board.turn)
     if gain >= 1:
         return "material", gain
-    if gain < 0:
-        return "concede", -gain
-    return ("defend", 0) if threat_text else ("position", 0)
+    if not threat_text:
+        # Without a threat, a small loss is usually an exchange still going on where the line was cut off.
+        return "position", 0
+    return ("concede", -gain) if gain < 0 else ("defend", 0)
 
 
-def _threatened(board: chess.Board, threat: Line | None) -> str | None:
+def threatened(board: chess.Board, threat: Line | None) -> str | None:
     """'pawn on d5' when the opponent's threat starts by capturing one of the student's pieces."""
     if threat is None:
         return None
@@ -81,12 +94,13 @@ def _threatened(board: chess.Board, threat: Line | None) -> str | None:
     return f"{PIECE_NAMES[target.piece_type]} on {chess.square_name(threat.move.to_square)}"
 
 
-def _idea_fact(kind: str, amount: int, threatened: str | None = None) -> str:
-    if kind == "concede" and threatened:
+def idea_fact(kind: str, amount: int, target: str | None = None) -> str:
+    """The engine's verdict on what matters most; `target` is what the opponent threatens ("pawn on d5")."""
+    if kind == "concede" and target:
         return (
-            f"The student can't keep the {threatened}: every good move lets it go (about {amount} "
+            f"The student can't keep the {target}: every good move lets it go (about {amount} "
             f"point{'s' if amount != 1 else ''} of material back) and develops or improves the position instead. "
-            f"Trying to hold on to the {threatened} is not what the engine recommends."
+            f"Trying to hold on to the {target} is not what the engine recommends."
         )
     return {
         "mate": f"The student has a forced checkmate in {amount}.",
@@ -101,17 +115,30 @@ def _idea_fact(kind: str, amount: int, threatened: str | None = None) -> str:
     }[kind]
 
 
-def hint(board: chess.Board, analysis: Analysis, threat: Line | None, level: int, student_color: chess.Color) -> Hint:
-    """A hint for the side to move (the student). Higher levels reveal more."""
+def hint(
+    board: chess.Board,
+    analysis: Analysis,
+    threat: Line | None,
+    level: int,
+    student_color: chess.Color,
+    focus: Plan | None = None,
+) -> Hint:
+    """A hint for the side to move (the student). Higher levels reveal more. `focus` is the coach's
+    plan for the position (guide.plan): in quiet positions the hint points to the same priority."""
     best = analysis.best
     threat_text = describe_threat(board, threat)
-    kind, amount = _idea(board, analysis, threat_text)
-    facts = _game_header(board, student_color)
+    kind, amount = idea(board, analysis, threat_text)
+    # An idea-only hint gets no piece positions: with them, Claude tends to work out and name the piece.
+    facts = game_header(board, student_color, pieces=level > 1)
 
-    facts.append(_idea_fact(kind, amount, _threatened(board, threat)))
+    quiet_focus = kind == "position" and focus is not None and not focus.urgent
+    if quiet_focus:
+        facts.append(f"What matters most now, according to the engine: {focus.priority}")
+    else:
+        facts.append(idea_fact(kind, amount, threatened(board, threat)))
     if threat_text:
         facts.append(threat_text)
-    template = {
+    template = focus.template if quiet_focus else {
         "mate": ("There's checkmate in one here. Look at every check you can give." if amount == 1
                  else f"There's a forced checkmate in {amount} here. Start by looking at every check you can give."),
         "material": "There's a way to win material here. Look for captures, checks, and pieces you can attack twice.",
@@ -136,6 +163,7 @@ def hint(board: chess.Board, analysis: Analysis, threat: Line | None, level: int
         )
 
     move = None
+    square = chess.square_name(best.move.from_square) if level >= 2 else None
     if level >= HINT_LEVELS:
         move = best.move.uci()
         facts.append(
@@ -152,7 +180,7 @@ def hint(board: chess.Board, analysis: Analysis, threat: Line | None, level: int
             "position": " It's the best way to improve your position.",
         }[kind]
 
-    return Hint("\n".join(facts), template, move)
+    return Hint("\n".join(facts), template, move, square)
 
 
 # ------------------------------------------------------------------------------------------- questions
@@ -244,7 +272,7 @@ def position_facts(
 ) -> str:
     """The current position, for answering a question about it. The student's best moves are only
     included with `show_best_moves`, so the coach can't volunteer them unasked."""
-    facts = _game_header(board, student_color)
+    facts = game_header(board, student_color)
     student_win = win_percent(analysis.score) if board.turn == student_color else 100 - win_percent(analysis.score)
     facts.append(
         f"Engine evaluation: {format_eval(Eval.from_white_score(analysis.white_score()))}. "
@@ -280,8 +308,8 @@ def position_facts(
         if board.turn == student_color:
             threat_text = describe_threat(board, threat)
             # The engine's one-line verdict on what matters now (the same one level-1 hints use), up front.
-            verdict = _idea_fact(*_idea(board, analysis, threat_text), _threatened(board, threat))
-            facts.insert(len(_game_header(board, student_color)), "ENGINE VERDICT (what matters most now): " + verdict)
+            verdict = idea_fact(*idea(board, analysis, threat_text), threatened(board, threat))
+            facts.insert(len(game_header(board, student_color)), "ENGINE VERDICT (what matters most now): " + verdict)
             if threat_text:
                 facts.append(threat_text)
         for color in (board.turn, not board.turn):

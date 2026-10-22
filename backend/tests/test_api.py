@@ -250,3 +250,42 @@ def test_speech_returns_audio(client):
         assert client.post("/api/speech", json={"text": "Hi", "voice": "en_US-nobody"}).status_code == 400
     finally:
         client.app.state.speech = real
+
+
+def test_guide_without_claude_uses_the_built_in_line(client):
+    use_explainer(client, None)
+    events = stream_events(client, "/api/guide", {"moves": ["e2e4", "e7e5", "d1h5", "g8f6"], "student_color": "white"})
+    # The queen is attacked; the engine's best answer (3.Qxe5+) also wins a pawn, so it's "material" or "threat".
+    assert events[0]["type"] == "topic" and events[0]["urgent"]
+    assert "queen on h5 is under attack" in events[-1]["text"] and events[-1]["source"] == "template"
+
+
+def test_guide_sends_facts_without_the_move(client):
+    fake = FakeClient([text("Mind your queen.")])
+    use_explainer(client, fake)
+    events = stream_events(client, "/api/guide", {"moves": ["e2e4", "e7e5", "d1h5", "g8f6"], "student_color": "white"})
+    assert events[-1] == {"type": "done", "text": "Mind your queen.", "source": "claude"}
+    facts = fake.calls[0]["messages"][0]["content"]
+    assert "The opponent's last move: 2...Nf6" in facts
+    assert "deliberately not given" in facts
+    assert fake.calls[0]["system"][0]["text"].startswith("You are a friendly, expert chess coach sitting beside")
+
+
+def test_guide_only_on_the_students_move(client):
+    assert client.post("/api/guide", json={"moves": ["e2e4"], "student_color": "white"}).status_code == 409
+
+
+def test_piece_hint_is_instant_and_skips_claude(client):
+    fake = FakeClient([text("should not be used")])
+    use_explainer(client, fake)
+    events = stream_events(client, "/api/hint", {"moves": SCHOLARS_SETUP, "student_color": "white", "level": 2})
+    assert events[0] == {"type": "piece", "square": "h5"}
+    assert events[-1]["source"] == "template" and not fake.calls
+
+
+def test_bot_move_reports_what_to_focus_on(client):
+    response = client.post("/api/bot-move", json={"moves": ["e2e4"], "level": "max"})
+    g = response.json()
+    assert g["guide_topic"] in {"check", "mate", "material", "threat", "concede", "castle", "develop", "center",
+                                "rooks", "king", "passed_pawn", "improve"}
+    assert isinstance(g["guide_urgent"], bool)

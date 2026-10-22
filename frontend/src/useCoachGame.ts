@@ -29,7 +29,7 @@ export interface Ply {
 export interface CoachMessage {
   id: number
   /** 'question' is the student's own message; 'answer' and 'hint' come from the coach. */
-  kind: 'grade' | 'opponent' | 'info' | 'over' | 'error' | 'hint' | 'question' | 'answer'
+  kind: 'grade' | 'opponent' | 'guide' | 'info' | 'over' | 'error' | 'hint' | 'question' | 'answer'
   text: string
   /** The built-in text, shown until Claude's arrives and kept if Claude fails. */
   template: string
@@ -60,7 +60,12 @@ interface GameState {
   retryingPly: number | null
   hintArrow: { from: string; to: string } | null
   /** How many hint levels the student has used, and at which position (number of plies). */
-  hints: { at: number; used: number }
+  /** Hints used at the position with `at` plies: the idea, and how far "show piece" has gone (piece, then move). */
+  hints: { at: number; idea: boolean; piece: 0 | 1 | 2 }
+  /** The piece the "show piece" hint is pointing at, highlighted on the board. */
+  pieceHint: string | null
+  /** What the coach's last guidance was about, and when, so it doesn't repeat itself. */
+  lastGuide: { topic: string; ply: number } | null
   /** What Take back removed, most recent last, so Forward can put it back (until a new move is made). */
   redo: { plies: Ply[]; evals: (Eval | null)[] }[]
   failed: 'grade' | 'bot' | null
@@ -158,7 +163,9 @@ const INITIAL: GameState = {
   pendingRetry: null,
   retryingPly: null,
   hintArrow: null,
-  hints: { at: 0, used: 0 },
+  hints: { at: 0, idea: false, piece: 0 },
+  pieceHint: null,
+  lastGuide: null,
   redo: [],
   failed: null,
   retryMode: 'mistakes',
@@ -166,7 +173,10 @@ const INITIAL: GameState = {
   voice: false,
 }
 
-export const HINT_LEVELS = 3
+// In "key moments" mode the coach gives guidance when it's urgent, when the priority changes (at most every
+// GUIDE_GAP plies), or when it's been quiet for GUIDE_QUIET plies.
+const GUIDE_GAP = 4
+const GUIDE_QUIET = 8
 // Earlier questions and answers sent along with a new question, for context.
 const ASK_HISTORY = 4
 
@@ -214,7 +224,7 @@ export function useCoachGame(coachAI: boolean) {
   const streamInto = async (
     id: number,
     run: (onEvent: (event: CoachEvent) => void, signal: AbortSignal) => Promise<void>,
-    onMove?: (uci: string) => void,
+    on: { move?: (uci: string) => void; piece?: (square: string) => void; topic?: (topic: string) => void } = {},
   ) => {
     const signal = explanations.current.signal
     let streamed = ''
@@ -238,7 +248,11 @@ export function useCoachGame(coachAI: boolean) {
           streamed = ''
           editMessage(id, (m) => ({ ...m, text: m.template }))
         } else if (event.type === 'move') {
-          onMove?.(event.uci)
+          on.move?.(event.uci)
+        } else if (event.type === 'piece') {
+          on.piece?.(event.square)
+        } else if (event.type === 'topic') {
+          on.topic?.(event.topic)
         } else {
           finish(event.text)
         }
@@ -280,31 +294,50 @@ export function useCoachGame(coachAI: boolean) {
     try {
       const grade = await api.botMove(plies.map((p) => p.uci), level?.id ?? 'casual', signal)
       if (signal.aborted) return
-      // The server only writes a note for opponent moves that matter: a blunder to punish or a threat
-      // to watch out for. In 'key' mode those are the only ones the coach mentions.
-      const notable = !!grade.message
-      const show = notable || (stateRef.current.coachMode === 'all' && coachAIRef.current)
-      const explain = show && coachAIRef.current
-      const context = [...plies.map((p) => p.uci), grade.uci]
-      const note = show
-        ? message('opponent', grade.message ?? '', grade, { explaining: explain, speak: notable, context })
-        : null
       update((s) =>
         finishTurn(
           {
             ...s,
             plies: [...s.plies, { uci: grade.uci, san: grade.san, grade }],
             evals: [...s.evals.slice(0, grade.ply), grade.eval_after],
-            messages: note ? [...s.messages, note] : s.messages,
           },
           'user',
         ),
       )
-      if (note && explain) void explainMove(note.id, context, true)
-      else if (note) announce(note.id)
+      // Before the student moves, the coach says what to focus on (which also covers the opponent's move).
+      if (stateRef.current.phase === 'user' && shouldGuide(grade)) guideStudent(grade)
     } catch (error) {
       if (!signal.aborted) fail(error, 'bot')
     }
+  }
+
+  /** Whether the coach should guide the student after the opponent's move `grade`. */
+  const shouldGuide = (grade: MoveGrade): boolean => {
+    const { coachMode, lastGuide, plies } = stateRef.current
+    if (coachMode === 'all' || grade.guide_urgent) return true
+    const since = lastGuide ? plies.length - lastGuide.ply : Infinity
+    return (grade.guide_topic !== lastGuide?.topic && since >= GUIDE_GAP) || since >= GUIDE_QUIET
+  }
+
+  /** The coach's guidance for the student's move: what matters now, never the move itself. */
+  const guideStudent = (grade?: MoveGrade) => {
+    const s = stateRef.current
+    const context = s.plies.map((p) => p.uci)
+    const note = message('guide', '', grade, {
+      template: grade?.message ?? '',
+      explaining: true,
+      speak: true,
+      context,
+    })
+    const ply = s.plies.length
+    update((s) => ({
+      ...s,
+      messages: [...s.messages, note],
+      lastGuide: grade?.guide_topic ? { topic: grade.guide_topic, ply } : s.lastGuide,
+    }))
+    void streamInto(note.id, (onEvent, signal) => api.guide({ moves: context, student_color: s.userColor }, onEvent, signal), {
+      topic: (topic) => update((s) => ({ ...s, lastGuide: { topic, ply } })),
+    })
   }
 
   const continueGame = () => {
@@ -382,6 +415,7 @@ export function useCoachGame(coachAI: boolean) {
       })
       .catch(() => {}) // the eval bar just stays centred
     if (userColor === 'black') void runBot()
+    else guideStudent()
   }
 
   const playMove = (uci: string) => {
@@ -397,7 +431,7 @@ export function useCoachGame(coachAI: boolean) {
     }
     stopSpeaking() // the student has moved on
     // A new move starts a new line, so what was taken back can't be replayed any more.
-    update((s) => ({ ...s, plies: [...s.plies, { uci, san, grade: null }], hintArrow: null, redo: [] }))
+    update((s) => ({ ...s, plies: [...s.plies, { uci, san, grade: null }], hintArrow: null, pieceHint: null, redo: [] }))
     void gradeLastMove()
   }
 
@@ -437,6 +471,7 @@ export function useCoachGame(coachAI: boolean) {
       pendingRetry: null,
       retryingPly: null,
       hintArrow: null,
+      pieceHint: null,
       failed: null,
       redo: [...s.redo, { plies: s.plies.slice(userIndex), evals: s.evals.slice(userIndex + 1) }],
       messages: [...s.messages, message('info', `Took back ${label}.`, undefined, { context: s.plies.map((p) => p.uci) })],
@@ -462,6 +497,7 @@ export function useCoachGame(coachAI: boolean) {
           pendingRetry: null,
           retryingPly: null,
           hintArrow: null,
+          pieceHint: null,
           failed: null,
           messages: [
             ...s.messages,
@@ -482,32 +518,46 @@ export function useCoachGame(coachAI: boolean) {
     else if (failed === 'bot') void runBot()
   }
 
-  /** The next hint level for the current position: the idea, then the piece, then the move (with an arrow). */
-  const requestHint = () => {
+  /** Hints used at the current position. */
+  const hintsHere = (s: GameState) => (s.hints.at === s.plies.length ? s.hints : { at: s.plies.length, idea: false, piece: 0 as const })
+  const studentToMove = (s: GameState) => s.phase === 'user' && buildGame(s.plies).turn() === s.userColor[0]
+
+  /** Ask for hint `level` (1: the idea, 2: the piece, 3: the move) and post it in the feed. */
+  const hint = (level: 1 | 2 | 3) => {
     const s = stateRef.current
-    if (s.phase !== 'user' || buildGame(s.plies).turn() !== s.userColor[0]) return
     const at = s.plies.length
-    const level = (s.hints.at === at ? s.hints.used : 0) + 1
-    if (level > HINT_LEVELS) return
+    const moves = s.plies.map((p) => p.uci)
     const note = message('hint', '', undefined, {
       template: "I couldn't come up with a hint just now.",
       explaining: true,
       hintLevel: level,
       speak: true,
-      context: s.plies.map((p) => p.uci),
+      context: moves,
     })
-    update((s) => ({ ...s, hints: { at, used: level }, messages: [...s.messages, note] }))
-    const moves = s.plies.map((p) => p.uci)
-    void streamInto(
-      note.id,
-      (onEvent, signal) => api.hint({ moves, student_color: s.userColor, level }, onEvent, signal),
-      (uci) => {
-        // Only if the student hasn't moved on in the meantime.
-        if (stateRef.current.plies.length === at) {
-          update((s) => ({ ...s, hintArrow: { from: uci.slice(0, 2), to: uci.slice(2, 4) } }))
-        }
-      },
-    )
+    update((s) => ({ ...s, messages: [...s.messages, note] }))
+    // Only show the piece or the move on the board if the student hasn't moved on in the meantime.
+    const stillHere = () => stateRef.current.plies.length === at
+    void streamInto(note.id, (onEvent, signal) => api.hint({ moves, student_color: s.userColor, level }, onEvent, signal), {
+      piece: (square) => stillHere() && update((s) => ({ ...s, pieceHint: square })),
+      move: (uci) => stillHere() && update((s) => ({ ...s, hintArrow: { from: uci.slice(0, 2), to: uci.slice(2, 4) } })),
+    })
+  }
+
+  /** 💡 Hint: point toward the idea. */
+  const requestIdea = () => {
+    const s = stateRef.current
+    if (!studentToMove(s) || hintsHere(s).idea) return
+    update((s) => ({ ...s, hints: { ...hintsHere(s), idea: true } }))
+    hint(1)
+  }
+
+  /** ♟ Show piece, then (pressed again) ➜ Show move. */
+  const revealPiece = () => {
+    const s = stateRef.current
+    const step = hintsHere(s).piece
+    if (!studentToMove(s) || step >= 2) return
+    update((s) => ({ ...s, hints: { ...hintsHere(s), piece: (step + 1) as 1 | 2 } }))
+    hint(step === 0 ? 2 : 3)
   }
 
   /** Ask the coach a question about the current position. */
@@ -561,18 +611,20 @@ export function useCoachGame(coachAI: boolean) {
   const game = useMemo(() => buildGame(state.plies), [state.plies])
   const canUndo = state.phase !== 'setup' && state.plies.some((_, i) => (i % 2 === 0 ? 'w' : 'b') === state.userColor[0])
   const canRedo = state.phase !== 'setup' && state.redo.length > 0
-  const hintsUsed = state.hints.at === state.plies.length ? state.hints.used : 0
-  const canHint = state.phase === 'user' && game.turn() === state.userColor[0] && hintsUsed < HINT_LEVELS
+  const hints = state.hints.at === state.plies.length ? state.hints : { idea: false, piece: 0 }
+  const myTurn = state.phase === 'user' && game.turn() === state.userColor[0]
 
   return {
     ...state,
     game,
     canUndo,
     canRedo,
-    hintsUsed,
-    canHint,
+    canIdea: myTurn && !hints.idea,
+    /** 0: "show piece" not used yet, 1: the piece is shown (next press shows the move), 2: both shown. */
+    pieceStep: hints.piece,
+    canPiece: myTurn && hints.piece < 2,
     actions: {
-      newGame, playMove, tryAgain, continueGame, undo, forward, retryFailed, requestHint, ask,
+      newGame, playMove, tryAgain, continueGame, undo, forward, retryFailed, requestIdea, revealPiece, ask,
       setRetryMode, setCoachMode, setVoice,
     },
   }

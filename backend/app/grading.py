@@ -129,6 +129,10 @@ class MoveGrade:
     delivers_mate: bool
     retry_suggested: bool
     message: str | None = field(default=None)
+    # For the opponent's moves: what the student should focus on next (see guide.plan), and whether it's
+    # urgent enough (a threat, a chance) for the coach to speak up even in "key moments" mode.
+    guide_topic: str | None = field(default=None)
+    guide_urgent: bool = field(default=False)
 
 
 def classify(

@@ -2,7 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CoachConfig } from '../api'
 import { GRADE_META } from '../grades'
 import { findMoveRefs, type MoveRef } from '../moveRefs'
-import { HINT_LEVELS, moveLabel, type CoachMessage, type Phase } from '../useCoachGame'
+import { moveLabel, type CoachMessage, type Phase } from '../useCoachGame'
 
 interface CoachPanelProps {
   messages: CoachMessage[]
@@ -14,16 +14,19 @@ interface CoachPanelProps {
   onShowBest: () => void
   onContinue: () => void
   onRetryFailed: () => void
-  canHint: boolean
-  /** Hint levels already used at this position. */
-  hintsUsed: number
-  onHint: () => void
+  /** 💡 Hint: the idea behind the best move. */
+  canIdea: boolean
+  onIdea: () => void
+  /** ♟ Show piece, then ➜ Show move. `pieceStep`: 0 nothing shown yet, 1 the piece is shown, 2 both. */
+  canPiece: boolean
+  pieceStep: number
+  onPiece: () => void
   onAsk: (question: string) => void
   /** Show a move mentioned in a message on the board (null: back to the game). */
   onPreview: (move: MoveRef | null) => void
 }
 
-const HINT_LABELS = ['Hint', 'Bigger hint', 'Show move']
+const HINT_TITLES: Record<number, string> = { 1: 'Hint', 2: 'Which piece', 3: 'The move' }
 
 const STATUS: Partial<Record<Phase, string>> = {
   grading: 'Looking at your move…',
@@ -39,9 +42,11 @@ export function CoachPanel({
   onShowBest,
   onContinue,
   onRetryFailed,
-  canHint,
-  hintsUsed,
-  onHint,
+  canIdea,
+  onIdea,
+  canPiece,
+  pieceStep,
+  onPiece,
   onAsk,
   onPreview,
 }: CoachPanelProps) {
@@ -106,19 +111,17 @@ export function CoachPanel({
         </div>
       )}
       <div className="hint-row">
+        <button type="button" onClick={onIdea} disabled={!canIdea} title="A nudge toward the idea, without giving the move">
+          💡 Hint
+        </button>
         <button
           type="button"
-          onClick={onHint}
-          disabled={!canHint}
-          title={hintsUsed >= HINT_LEVELS ? 'No more hints for this move' : 'Get a hint for your move'}
+          onClick={onPiece}
+          disabled={!canPiece}
+          title={pieceStep === 0 ? 'Highlight the piece to move' : 'Show where the piece goes'}
         >
-          💡 {HINT_LABELS[Math.min(hintsUsed, HINT_LEVELS - 1)]}
+          {pieceStep === 0 ? '♟ Show piece' : '➜ Show move'}
         </button>
-        {hintsUsed > 0 && (
-          <span className="muted">
-            {hintsUsed}/{HINT_LEVELS} hints used
-          </span>
-        )}
       </div>
       <form
         className="ask"
@@ -211,10 +214,23 @@ function Message({ message, latest, onPreview }: { message: CoachMessage; latest
     <div className={`bubble ${message.kind} ${latest ? 'latest' : ''}`}>
       {message.kind === 'hint' && (
         <div className="bubble-head">
-          <span aria-hidden>💡</span>
-          <strong>
-            Hint {message.hintLevel}/{HINT_LEVELS}
-          </strong>
+          <span aria-hidden>{message.hintLevel === 1 ? '💡' : message.hintLevel === 2 ? '♟' : '➜'}</span>
+          <strong>{HINT_TITLES[message.hintLevel ?? 1]}</strong>
+        </div>
+      )}
+      {message.kind === 'guide' && (
+        <div className="bubble-head">
+          {grade ? (
+            <>
+              <span className="badge" style={{ background: GRADE_META[grade.classification].color }}>
+                {GRADE_META[grade.classification].symbol}
+              </span>
+              <strong>{moveLabel(grade.ply - 1, grade.san)}</strong>
+              <span className="muted">opponent · your move</span>
+            </>
+          ) : (
+            <strong>Your move</strong>
+          )}
         </div>
       )}
       {message.kind === 'opponent' && grade && (
