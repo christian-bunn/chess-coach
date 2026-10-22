@@ -1,6 +1,9 @@
 # Local Stockfish copy (or install it system-wide with `sudo apt install stockfish`)
 /engine/
 
+# Downloaded Piper voice models (see README: Speak)
+/voices/
+
 # Local settings, including your Anthropic API key
 .env
 

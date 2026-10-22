@@ -130,7 +130,7 @@ def use_explainer(client, fake):
 
 def test_explain_falls_back_to_the_template_without_claude(client):
     use_explainer(client, None)
-    assert client.get("/api/config").json() == {"coach_ai": False, "model": None, "via": None}
+    assert client.get("/api/config").json() == {"coach_ai": False, "model": None, "via": None, "voice": False}
     events = explain(client, ["e2e4", "d7d5", "d1g4"])
     assert events == [{"type": "done", "text": "Blunder! 2.Qg4 puts your queen on g4, where 2...Bxg4 takes it.", "source": "template"}]
 
@@ -213,3 +213,28 @@ def test_ask_checks_the_moves_in_the_question(client):
     assert prompt.startswith("Earlier in this conversation:\nStudent: Who is better?\nCoach: You are.")
     assert prompt.endswith("The student's question: What about Bxf7+ or Ra3?")
     assert fake.calls[0]["system"][0]["text"].startswith("You are a friendly, expert chess coach answering")
+
+
+class FakeSpeech:
+    available = True
+
+    async def wav(self, text):
+        return b"RIFF" + text.encode()
+
+
+def test_speech_without_a_voice(client):
+    assert client.get("/api/config").json()["voice"] is False
+    assert client.post("/api/speech", json={"text": "Hello"}).status_code == 503
+
+
+def test_speech_returns_audio(client):
+    real = client.app.state.speech
+    client.app.state.speech = FakeSpeech()
+    try:
+        response = client.post("/api/speech", json={"text": "Knight takes e4"})
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "audio/wav"
+        assert response.content == b"RIFFKnight takes e4"
+        assert client.get("/api/config").json()["voice"] is True
+    finally:
+        client.app.state.speech = real

@@ -19,6 +19,7 @@ import chess
 import chess.engine
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from .coach import describe_opponent_move, describe_user_move, threat_warning
@@ -31,6 +32,7 @@ from .facts import fact_sheet
 from .grading import Eval, MoveGrade, grade_move, san_line
 from .levels import DEFAULT_LEVEL, LEVELS, LEVELS_BY_ID
 from .prompts import CHAT_PROMPT, COMMENT_PROMPT, HINT_PROMPT
+from .speech import MAX_TEXT, Speech
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +58,9 @@ async def lifespan(app: FastAPI):
     await engines.start()
     app.state.engines = engines
     explainer = await make_explainer(settings)
+    speech = Speech(settings.voice_path)
+    speech.start()
+    app.state.speech = speech
     app.state.explainer = explainer
     log.info(
         "Coach comments: %s",
@@ -88,6 +93,10 @@ class ExplainIn(MovesIn):
 class HintIn(MovesIn):
     student_color: Literal["white", "black"]
     level: int = Field(1, ge=1, le=HINT_LEVELS)
+
+
+class SpeechIn(BaseModel):
+    text: str = Field(min_length=1, max_length=MAX_TEXT)
 
 
 class Exchange(BaseModel):
@@ -159,7 +168,21 @@ async def health(request: Request) -> dict[str, str]:
 async def config(request: Request) -> dict[str, str | bool | None]:
     explainer: Explainer | ClaudeCodeExplainer = request.app.state.explainer
     on = explainer.available
-    return {"coach_ai": on, "model": explainer.model if on else None, "via": explainer.via if on else None}
+    return {
+        "coach_ai": on,
+        "model": explainer.model if on else None,
+        "via": explainer.via if on else None,
+        "voice": request.app.state.speech.available,
+    }
+
+
+@app.post("/api/speech")
+async def speech(body: SpeechIn, request: Request) -> Response:
+    """`text` read aloud by the coach's voice, as a WAV file."""
+    voice: Speech = request.app.state.speech
+    if not voice.available:
+        raise HTTPException(503, "The coach's voice isn't set up (see README: Speak)")
+    return Response(await voice.wav(body.text), media_type="audio/wav")
 
 
 @app.get("/api/levels")

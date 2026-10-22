@@ -6,10 +6,10 @@ import { EvalBar } from './components/EvalBar'
 import { MoveList } from './components/MoveList'
 import { NewGame } from './components/NewGame'
 import { useCoachGame, type CoachMode, type RetryMode } from './useCoachGame'
-import { voiceSupported } from './voice'
+import { canSpeak, setServerVoice } from './voice'
 
 export default function App() {
-  const [config, setConfig] = useState<CoachConfig>({ coach_ai: false, model: null, via: null })
+  const [config, setConfig] = useState<CoachConfig>({ coach_ai: false, model: null, via: null, voice: false })
   const coach = useCoachGame(config.coach_ai)
   const { phase, plies, userColor, actions } = coach
   const [levels, setLevels] = useState<Level[]>([])
@@ -19,8 +19,24 @@ export default function App() {
 
   useEffect(() => {
     api.levels().then(setLevels, (e: Error) => setBackendError(e.message))
-    api.config().then(setConfig, () => {}) // without it, the built-in comments are used
+    api.config().then((c) => {
+      setServerVoice(c.voice)
+      setConfig(c)
+    }, () => {}) // without it, the built-in comments are used
   }, [])
+
+  // ← and → take back and go forward, unless you're typing a question.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return
+      if (e.key === 'ArrowLeft') actions.undo()
+      if (e.key === 'ArrowRight') actions.forward()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+  const voiceAvailable = config.voice || canSpeak()
 
   const userChar = userColor === 'white' ? 'w' : 'b'
   const orientation = flipped ? (userColor === 'white' ? 'black' : 'white') : userColor
@@ -102,14 +118,17 @@ export default function App() {
                 onAsk={actions.ask}
               />
               <div className="controls">
-                <button onClick={actions.undo} disabled={!coach.canUndo} title="Take back your last move">
+                <button onClick={actions.undo} disabled={!coach.canUndo} title="Take back your last move (←)">
                   ↶ Take back
+                </button>
+                <button onClick={actions.forward} disabled={!coach.canRedo} title="Put back what you took back (→)">
+                  Forward ↷
                 </button>
                 <button onClick={() => setFlipped((f) => !f)} title="Flip the board">
                   ⇅ Flip
                 </button>
                 <button onClick={() => setShowSetup(true)}>New game</button>
-                {voiceSupported && (
+                {voiceAvailable && (
                   <button
                     className="icon"
                     onClick={() => actions.setVoice(!coach.voice)}
@@ -139,7 +158,7 @@ export default function App() {
                     <option value="all">on every move</option>
                   </select>
                 </label>
-                {voiceSupported && (
+                {voiceAvailable && (
                   <label title="Read key comments, hints and answers aloud">
                     <input type="checkbox" checked={coach.voice} onChange={(e) => actions.setVoice(e.target.checked)} />
                     Speak

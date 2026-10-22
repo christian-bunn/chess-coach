@@ -74,6 +74,8 @@ export interface CoachConfig {
   model: string | null
   /** "claude-code": through Claude Code on the user's Claude plan. "api": an API key, billed per request. */
   via: 'claude-code' | 'api' | null
+  /** Whether the backend can read comments aloud (a Piper voice is installed). */
+  voice: boolean
 }
 
 /** One line of a streamed coach reply (comment, hint or answer). */

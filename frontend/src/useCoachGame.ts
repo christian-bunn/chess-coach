@@ -59,6 +59,8 @@ interface GameState {
   hintArrow: { from: string; to: string } | null
   /** How many hint levels the student has used, and at which position (number of plies). */
   hints: { at: number; used: number }
+  /** What Take back removed, most recent last, so Forward can put it back (until a new move is made). */
+  redo: { plies: Ply[]; evals: (Eval | null)[] }[]
   failed: 'grade' | 'bot' | null
   retryMode: RetryMode
   coachMode: CoachMode
@@ -155,6 +157,7 @@ const INITIAL: GameState = {
   retryingPly: null,
   hintArrow: null,
   hints: { at: 0, used: 0 },
+  redo: [],
   failed: null,
   retryMode: 'mistakes',
   coachMode: 'key',
@@ -386,7 +389,8 @@ export function useCoachGame(coachAI: boolean) {
       return // illegal
     }
     stopSpeaking() // the student has moved on
-    update((s) => ({ ...s, plies: [...s.plies, { uci, san, grade: null }], hintArrow: null }))
+    // A new move starts a new line, so what was taken back can't be replayed any more.
+    update((s) => ({ ...s, plies: [...s.plies, { uci, san, grade: null }], hintArrow: null, redo: [] }))
     void gradeLastMove()
   }
 
@@ -427,8 +431,39 @@ export function useCoachGame(coachAI: boolean) {
       retryingPly: null,
       hintArrow: null,
       failed: null,
+      redo: [...s.redo, { plies: s.plies.slice(userIndex), evals: s.evals.slice(userIndex + 1) }],
       messages: [...s.messages, message('info', `Took back ${label}.`)],
     }))
+  }
+
+  /** Put back what the last Take back removed, grades and all. */
+  const forward = () => {
+    const s = stateRef.current
+    const step = s.redo.at(-1)
+    if (!step || s.phase === 'setup') return
+    cancelPending()
+    stopSpeaking()
+    const first = s.plies.length
+    const label = moveLabel(first, step.plies[0].san)
+    update((s) =>
+      finishTurn(
+        {
+          ...s,
+          plies: [...s.plies, ...step.plies],
+          evals: [...s.evals, ...step.evals],
+          redo: s.redo.slice(0, -1),
+          pendingRetry: null,
+          retryingPly: null,
+          hintArrow: null,
+          failed: null,
+          messages: [...s.messages, message('info', `Went forward to ${label}.`)],
+        },
+        'user',
+      ),
+    )
+    // If the opponent's reply wasn't part of what was taken back, it's their move now.
+    const after = stateRef.current
+    if (after.phase === 'user' && buildGame(after.plies).turn() !== after.userColor[0]) void runBot()
   }
 
   const retryFailed = () => {
@@ -512,6 +547,7 @@ export function useCoachGame(coachAI: boolean) {
 
   const game = useMemo(() => buildGame(state.plies), [state.plies])
   const canUndo = state.phase !== 'setup' && state.plies.some((_, i) => (i % 2 === 0 ? 'w' : 'b') === state.userColor[0])
+  const canRedo = state.phase !== 'setup' && state.redo.length > 0
   const hintsUsed = state.hints.at === state.plies.length ? state.hints.used : 0
   const canHint = state.phase === 'user' && game.turn() === state.userColor[0] && hintsUsed < HINT_LEVELS
 
@@ -519,10 +555,11 @@ export function useCoachGame(coachAI: boolean) {
     ...state,
     game,
     canUndo,
+    canRedo,
     hintsUsed,
     canHint,
     actions: {
-      newGame, playMove, tryAgain, continueGame, undo, retryFailed, requestHint, ask,
+      newGame, playMove, tryAgain, continueGame, undo, forward, retryFailed, requestHint, ask,
       setRetryMode, setCoachMode, setVoice,
     },
   }
