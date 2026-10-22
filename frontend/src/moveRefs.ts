@@ -1,14 +1,20 @@
 import { Chess, type Move } from 'chess.js'
 
-/** A move mentioned in a coach message ("11.c3"), resolved to the position it was played from. */
-export interface MoveRef {
-  text: string
+/** A position shown on the board instead of the game: a move about to be played. */
+export interface BoardPreview {
   /** The position just before the move. */
   fen: string
   from: string
   to: string
-  /** In words, for people still learning notation: "White's move 11: pawn from c2 to c3". */
+  /** Shown over the board, e.g. "White's move 11: pawn from c2 to c3". */
   label: string
+  /** The engine's better move, drawn as a second arrow. */
+  best?: { from: string; to: string }
+}
+
+/** A move mentioned in a coach message ("11.c3"), resolved to the position it was played from. */
+export interface MoveRef extends BoardPreview {
+  text: string
 }
 
 export type Segment = string | MoveRef

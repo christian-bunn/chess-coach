@@ -4,7 +4,7 @@
 # Downloaded Piper voice models (see README: Speak)
 /voices/
 
-# Local settings, including your Anthropic API key
+# Local settings (.env)
 .env
 
 # Python

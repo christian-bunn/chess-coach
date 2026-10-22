@@ -4,13 +4,18 @@ import { api, type CoachConfig, type Eval, type Level, type VoiceOption } from '
 import { Board } from './components/Board'
 import { CoachPanel } from './components/CoachPanel'
 import { EvalBar } from './components/EvalBar'
+import { GameReview } from './components/GameReview'
 import { MoveList } from './components/MoveList'
 import { NewGame } from './components/NewGame'
-import type { MoveRef } from './moveRefs'
+import type { BoardPreview } from './moveRefs'
+import { previewMove } from './review'
 import { useCoachGame, type CoachMode, type RetryMode } from './useCoachGame'
+import { useReviewPractice } from './useReviewPractice'
 import { canSpeak, setServerVoice, setVoiceName, speak, stopSpeaking } from './voice'
 
 const VOICE_KEY = 'chess-coach.voice-name'
+const MOVE_ARROW = 'rgba(74, 159, 216, 0.9)'
+const BEST_ARROW = 'rgba(129, 182, 76, 0.9)'
 const VOICE_SAMPLE =
   "Nice. 12.Nd5 hits the queen on c7 and the bishop on e7 at the same time, so your opponent can't save both."
 
@@ -23,22 +28,50 @@ function savedVoice(): string | null {
 }
 
 export default function App() {
-  const [config, setConfig] = useState<CoachConfig>({ coach_ai: false, model: null, via: null, voice: false })
-  const coach = useCoachGame(config.coach_ai)
+  const [config, setConfig] = useState<CoachConfig>({ voice: false })
+  const coach = useCoachGame()
   const { phase, plies, userColor, actions } = coach
   const [levels, setLevels] = useState<Level[]>([])
   const [backendError, setBackendError] = useState<string | null>(null)
   const [showSetup, setShowSetup] = useState(false)
   const [flipped, setFlipped] = useState(false)
   // A move from a coach message being shown on the board instead of the game.
-  const [preview, setPreview] = useState<MoveRef | null>(null)
-  const previewGame = useMemo(() => (preview ? new Chess(preview.fen) : null), [preview])
+  const [preview, setPreview] = useState<BoardPreview | null>(null)
   // Previews (and going back from one) snap instantly; real moves animate again.
   const [instant, setInstant] = useState(false)
-  const showPreview = (move: MoveRef | null) => {
+  const showPreview = (move: BoardPreview | null) => {
     setInstant(true)
     setPreview(move)
   }
+
+  // The game review: the move it's showing on the board, and replaying a move from it.
+  const review = coach.reviewOpen ? coach.review : null
+  const [reviewView, setReviewView] = useState<{ ply: number; withBest: boolean } | null>(null)
+  const practice = useReviewPractice(review)
+  const practiceBoard = review ? practice.board : null
+  const reviewPreview = useMemo(
+    () => (review && reviewView ? previewMove(review, reviewView.ply, reviewView.withBest) : null),
+    [review, reviewView],
+  )
+  const selectReviewMove = (ply: number | null, withBest = false) => {
+    practice.stop()
+    setInstant(true)
+    setReviewView(ply === null ? null : { ply, withBest })
+  }
+  const openReview = () => {
+    setPreview(null)
+    setReviewView(null)
+    practice.stop()
+    actions.openReview()
+  }
+  const closeReview = () => {
+    setReviewView(null)
+    practice.stop()
+    setInstant(true)
+    actions.closeReview()
+  }
+  const shown = review ? (practiceBoard ? null : reviewPreview) : preview
+  const shownGame = useMemo(() => (shown ? new Chess(shown.fen) : null), [shown])
   const [voices, setVoices] = useState<VoiceOption[]>([])
   const [voice, setVoice] = useState<string | null>(null)
 
@@ -74,13 +107,19 @@ export default function App() {
 
   useEffect(() => setInstant(false), [plies.length])
 
-  // ← and → take back and go forward, unless you're typing a question.
+  // ← and → take back and go forward; in the review they step through the moves instead.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return
-      if (e.key === 'ArrowLeft') actions.undo()
-      if (e.key === 'ArrowRight') actions.forward()
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+      if (review) {
+        if (practice.practice) return
+        const step = e.key === 'ArrowLeft' ? -1 : 1
+        const ply = Math.min(review.plies.length, Math.max(1, (reviewView?.ply ?? (step < 0 ? review.plies.length + 1 : 0)) + step))
+        selectReviewMove(ply)
+      } else if (e.key === 'ArrowLeft') actions.undo()
+      else actions.forward()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -92,6 +131,11 @@ export default function App() {
   const last = plies.at(-1)
   const lastWasUser = plies.length > 0 && ((plies.length - 1) % 2 === 0 ? 'w' : 'b') === userChar
   const evaluation: Eval | null = coach.evals.slice(0, plies.length + 1).findLast((e) => e != null) ?? null
+  // In the review, the bar follows the move being looked at (or the move just tried).
+  const reviewPly = practice.practice?.ply ?? reviewView?.ply
+  const reviewEvaluation: Eval | null = review
+    ? (practice.practice?.attempt?.eval_after ?? (reviewPly ? review.evals[reviewPly - 1] : review.evals.at(-1)) ?? null)
+    : null
   const settingUp = phase === 'setup' || showSetup
 
   return (
@@ -108,34 +152,49 @@ export default function App() {
       </header>
       <main>
         <div className="board-area">
-          <EvalBar evaluation={phase === 'setup' ? null : evaluation} orientation={orientation} />
+          <EvalBar evaluation={phase === 'setup' ? null : (reviewEvaluation ?? evaluation)} orientation={orientation} />
           <Board
-            game={previewGame ?? coach.game}
+            game={practiceBoard?.game ?? shownGame ?? coach.game}
             orientation={orientation}
-            interactive={!preview && !settingUp && phase === 'user' && coach.game.turn() === userChar}
+            interactive={
+              practiceBoard
+                ? practiceBoard.interactive
+                : !shown && !review && !settingUp && phase === 'user' && coach.game.turn() === userChar
+            }
             userColor={userChar}
             lastMove={
-              preview
-                ? { from: preview.from, to: preview.to }
-                : last
-                  ? { from: last.uci.slice(0, 2), to: last.uci.slice(2, 4) }
-                  : null
+              practiceBoard
+                ? practiceBoard.lastMove
+                : shown
+                  ? { from: shown.from, to: shown.to }
+                  : last
+                    ? { from: last.uci.slice(0, 2), to: last.uci.slice(2, 4) }
+                    : null
             }
             badge={
-              !preview && last?.grade && lastWasUser
-                ? { square: last.uci.slice(2, 4), classification: last.grade.classification }
-                : null
+              practiceBoard
+                ? practiceBoard.badge
+                : !shown && !review && last?.grade && lastWasUser
+                  ? { square: last.uci.slice(2, 4), classification: last.grade.classification }
+                  : null
             }
             arrows={
-              preview
-                ? [{ startSquare: preview.from, endSquare: preview.to, color: 'rgba(74, 159, 216, 0.9)' }]
-                : coach.hintArrow
-                  ? [{ startSquare: coach.hintArrow.from, endSquare: coach.hintArrow.to, color: 'rgba(129, 182, 76, 0.9)' }]
+              practiceBoard
+                ? practiceBoard.best
+                  ? [{ startSquare: practiceBoard.best.from, endSquare: practiceBoard.best.to, color: BEST_ARROW }]
                   : []
+                : shown
+                  ? [
+                      { startSquare: shown.from, endSquare: shown.to, color: MOVE_ARROW },
+                      ...(shown.best ? [{ startSquare: shown.best.from, endSquare: shown.best.to, color: BEST_ARROW }] : []),
+                    ]
+                  : coach.hintArrow && !review
+                    ? [{ startSquare: coach.hintArrow.from, endSquare: coach.hintArrow.to, color: BEST_ARROW }]
+                    : []
             }
-            onMove={actions.playMove}
-            caption={preview?.label}
-            highlight={preview ? null : coach.pieceHint}
+            onMove={practiceBoard ? (uci) => void practice.play(uci) : actions.playMove}
+            caption={practiceBoard?.caption ?? shown?.label}
+            highlight={shown || review ? null : coach.pieceHint}
             animate={!instant}
           />
         </div>
@@ -163,13 +222,28 @@ export default function App() {
             ) : (
               <p className="muted">Connecting to the engine…</p>
             )
+          ) : review ? (
+            <GameReview
+              review={review}
+              selected={practice.practice?.ply ?? reviewView?.ply ?? null}
+              onSelect={selectReviewMove}
+              practice={practice.practice}
+              onPractice={(ply) => {
+                setReviewView(null)
+                setInstant(true)
+                practice.start(ply)
+              }}
+              onTryAgain={practice.tryAgain}
+              onShowBest={practice.showBest}
+              onStopPractice={practice.stop}
+              onClose={closeReview}
+            />
           ) : (
             <>
               <CoachPanel
                 messages={coach.messages}
                 phase={phase}
                 canShowBest={!!coach.pendingRetry?.best_move}
-                coachAI={config.coach_ai ? config : null}
                 onTryAgain={() => actions.tryAgain(false)}
                 onShowBest={() => actions.tryAgain(true)}
                 onContinue={actions.continueGame}
@@ -179,14 +253,15 @@ export default function App() {
                 canPiece={coach.canPiece}
                 pieceStep={coach.pieceStep}
                 onPiece={actions.revealPiece}
-                onAsk={actions.ask}
+                canReview={coach.canReview}
+                onReview={openReview}
                 onPreview={showPreview}
               />
               <div className="controls">
-                <button onClick={actions.undo} disabled={!coach.canUndo} title="Take back your last move (←)">
+                <button onClick={actions.undo} disabled={!coach.canUndo || !!review} title="Take back your last move (←)">
                   ↶ Take back
                 </button>
-                <button onClick={actions.forward} disabled={!coach.canRedo} title="Put back what you took back (→)">
+                <button onClick={actions.forward} disabled={!coach.canRedo || !!review} title="Put back what you took back (→)">
                   Forward ↷
                 </button>
                 <button onClick={() => setFlipped((f) => !f)} title="Flip the board">
@@ -247,15 +322,7 @@ export default function App() {
                     </button>
                   </div>
                 )}
-                <p className="coach-source">
-                  {config.coach_ai && config.via === 'claude-code' ? (
-                    <>Comments by Claude ({config.model}) through Claude Code, on your Claude plan.</>
-                  ) : config.coach_ai ? (
-                    <>Comments by Claude ({config.model}) through the Anthropic API, billed to your API key.</>
-                  ) : (
-                    <>Built-in comments. Log in to Claude Code to have Claude explain each move (see README).</>
-                  )}
-                </p>
+                <p className="coach-source">Grades, comments and hints all come from Stockfish's analysis.</p>
               </details>
             </>
           )}

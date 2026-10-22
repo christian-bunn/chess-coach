@@ -2,11 +2,12 @@
 
 Play chess against Stockfish while a coach grades every move you make, the way chess.com's coach does.
 If you blunder or miss a win (a checkmate, say), the coach stops and offers to let you take the move back
-and try again. When you're stuck, ask for a hint, or ask the coach a question about the position.
+and try again. When you're stuck, ask for a hint. After the game, a review shows your accuracy and lets you
+replay your mistakes.
 
 **Design rule:** the engine decides what's true, and the coach only puts it into words. Stockfish does all the
-chess. Claude writes the comments from a fact sheet the engine produces, and is told not to work anything
-out on its own.
+chess, and code turns its analysis into short sentences. Nothing is guessed: every comment, hint and piece of
+guidance restates something the engine worked out.
 
 ## Setup
 
@@ -31,111 +32,47 @@ cd ../frontend
 npm install
 ```
 
-## Claude explanations (optional)
+## How the comments work
 
-Without Claude, the coach uses short built-in comments. There are two ways to have Claude explain every
-move, both yours and the opponent's. The footer under the coach panel shows which one is in use.
-
-### On your Claude plan, through Claude Code (default)
-
-Log Claude Code's command-line tool in with your Claude account once. This opens a browser to sign in:
-
-```bash
-claude auth login --claudeai
-```
-
-Then restart `./dev.sh`. The coach runs `claude -p` for each comment, so comments come out of your plan's
-usage limits rather than an API bill. A game is roughly 60–80 short requests. Comments use the Haiku
-model by default, which is quick and light on your limits; set `COACH_MODEL=sonnet` for richer ones.
-
-Some safeguards apply in this mode:
-- **Never bills an API key:** the coach removes `ANTHROPIC_API_KEY` from Claude Code's environment,
-  because with a key set, `claude -p` bills the key instead of your plan. It also refuses to run if
-  Claude Code is logged in with anything other than a Claude subscription.
-- **Lightweight:** each run has no tools, runs in an empty temporary folder, and saves no session history.
-
-**Personal use only:** this runs the unmodified Claude Code program under your own login, on your own
-machine. Anthropic's terms don't allow apps that route other people's requests through your Claude
-plan, so don't host or share the coach in this mode. Use an API key for that.
-
-### With an API key (billed per request)
-
-An API key from console.anthropic.com is billed separately from any Claude plan. Put it in a `.env` file
-in the project folder (git-ignored, read by the backend at startup):
-
-```bash
-ANTHROPIC_API_KEY=sk-ant-...
-COACH_AI=api
-```
-
-`COACH_AI=api` is needed only if Claude Code is also logged in, because Claude Code is tried first. With
-the default model, Opus 5.5, each comment costs roughly 1¢ (about $1 for a 40-move game); Haiku is about
-40× cheaper. These are estimates. API requests opt in to server-side refusal fallbacks
-(`fallbacks: "default"`), so if a safety classifier ever declined a comment, the API would retry it on
-another model.
-
-### Settings
-
-These can go in `.env` or the environment:
-
-| Setting | Default | |
-|---|---|---|
-| `COACH_AI` | `auto` | `auto`: Claude Code if it's logged in, else an API key if there is one, else built-in comments. Also `claude-code`, `api`, or `off` |
-| `COACH_MODEL` | `haiku` (Claude Code), `claude-opus-5-5` (API) | e.g. `sonnet`, `claude-haiku-5-5` |
-| `COACH_EFFORT` | `low` | How much Claude thinks before commenting: `low`, `medium`, `high`, ... |
-
-### How it works
-
-- **The main point:** for a bad move, code works out *why* before Claude sees anything. The move either
-  ignored a piece that was already under attack, put a piece on an attacked square, took away a piece's
-  defender, allowed a mate, or missed one (`facts.why_bad`). The comment is built around that. The built-in
-  comments use the same reasons.
-- **The fact sheet:** `backend/app/facts.py` turns the engine's analysis into plain sentences. It covers
-  what the move does and attacks, the threat it creates, the engine's lines spelled out move by move,
-  loose pieces, and mate facts. Claude gets only this sheet, never a chance to analyse the board itself.
-- **No spoilers:** while you're being offered a retry, the best move (and anything that points at it) is
-  left out of the sheet entirely, so the comment can't give the answer away. The same goes for your
-  best reply when the opponent blunders.
-- **Streaming:** comments stream into the coach panel. If Claude fails or is slow, you keep the built-in
-  comment.
+- **Why a move is bad:** for a bad move, code works out *why* from the engine's line (`facts.why_bad`). The
+  move either ignored a piece that was already under attack, put a piece on an attacked square, took away a
+  piece's defender, allowed a mate, or missed one. The comment names the piece and the opponent's reply, for
+  example "Blunder! 3.Bxe6 puts your bishop on e6, and 3...dxe6 takes it."
+- **No spoilers:** when you're offered a retry, the comment doesn't name the better move. "Show me" does
+  that, if you want it.
 
 ## The coach guides you
 
-When it's your move, the coach tells you what to focus on, without naming the move. One message covers
-what the opponent just did and what you should be thinking about next. For example: deal with a threat,
-take a chance to win material, castle while your king is still in the center, finish developing, fight
-for the center, or bring your rooks to open files.
+When it's your move, the coach tells you what to focus on, without naming the move. For example: deal with
+a threat, take a chance to win material, castle while your king is still in the center, finish developing,
+fight for the center, or bring your rooks to open files. If the opponent's last move was a mistake or a
+blunder, it says so first, so you know there's something to find.
 
-The priority comes from the engine's best move, worked out in code (`backend/app/guide.py`). The move
-itself is never given to Claude, so the guidance points the way without giving away the answer.
-
-Some details keep the guidance accurate:
-- **Threats:** when something of yours is attacked, the facts say *how* the engine meets the threat:
-  capturing the attacker, moving the piece away, blocking, defending, a check, or a checkmate that makes
-  the threat irrelevant. So the coach won't tell you to save your queen when the better move is to take
-  the piece attacking it.
-- **One main point:** when something urgent is going on, the guidance is built around that one point,
-  and the quieter details (open files, undeveloped pieces) are left out.
-- **Whose piece is whose:** every piece in the facts Claude sees is labelled "(student)" or
-  "(opponent)", so it can't call the opponent's knight "your knight".
+The priority comes from the engine's best move, worked out in `backend/app/guide.py`. Some details keep it
+accurate:
+- **Threats:** when something of yours is attacked, the coach checks *how* the engine meets the threat:
+  capturing the attacker, moving the piece away, blocking, defending, a check, or a checkmate that makes the
+  threat irrelevant. So it won't tell you to save your queen when the better move is to take the piece
+  attacking it.
+- **Checks:** it names your king and the checking piece ("Your king on g1 is in check from the knight on
+  e2"), and says when the way out is to capture the checking piece.
 
 ## How much the coach says
 
 By default the coach speaks up only at **key moments**, and every move still gets its grade badge.
 
 - **Comments on your moves:** your mistakes, blunders and missed wins, your great moves, missed mates, and
-  finding the right move on a retry. Inaccuracies get a short built-in note.
+  finding the right move on a retry. Inaccuracies get a short note.
 - **Guidance before your move:** when there's a threat or a chance, when the priority changes (at most
   every two moves), or when it's been quiet for four moves.
 
-Under **⚙ Settings**, set **Coach comments** to "on every move" for comments and guidance on every move
-(that uses more of your plan).
+Under **⚙ Settings**, set **Coach comments** to "on every move" for comments and guidance on every move.
 
 The newest message is outlined. If you scroll up to reread something, new messages won't pull you away, and
 a **↓ Latest** button takes you back.
 
 Turn on **Speak** (the 🔊 button, or under ⚙ Settings) to have the coach read those key comments, plus your
-hints and answers, aloud.
+hints, aloud.
 - **The voice:** [Piper](https://github.com/OHF-Voice/piper1-gpl), natural-sounding voice models that
   run offline on your CPU. The backend makes the audio and the page plays it, so it works in any browser,
   including the Claude desktop app's, which has no voices of its own.
@@ -145,8 +82,6 @@ hints and answers, aloud.
 - **Smoother speech:** each comment is spoken at one even volume, with a short pause between sentences
   and a slightly calm pace. (Piper on its own runs sentences together and sets each one's volume
   separately, which sounds choppy.)
-- **Written to be heard:** comments avoid brackets and lists, and consecutive moves are read with a pause
-  between them ("queen takes d1, rook takes d1").
 - **Notation:** read as words, so "12...Nxe4+" becomes "knight takes e4, check".
 - **Interruptions:** anything still being read stops as soon as you move.
 - **Settings:** set `COACH_VOICE` to a voice name to change the default, or to `off`. Without any voice
@@ -158,7 +93,7 @@ The coach writes moves in standard notation: **11.c3** means White's 11th move, 
 **12...Nxe4** is Black's 12th move, a knight capturing on e4. Every move in a coach message is a link. Point
 at it, or tap it, and the board shows the position at that point with an arrow and a caption in words
 ("White's move 11: pawn from c2 to c3"). That works for lines that never happened in the game too, such as
-"after 10...Qxd1 11.Raxd1". The coach is also told to say in words what each move it mentions does.
+"after 10...Qxd1 11.Raxd1".
 
 ## Take back and Forward
 
@@ -166,28 +101,34 @@ at it, or tap it, and the board shows the position at that point with an arrow a
 them back, grades and all. You can step back several moves and forward again. Playing a different move
 starts a new line, and Forward then has nothing to replay.
 
-## Hints and questions
+## Hints
 
 Two hint buttons, usable on each of your moves:
 
 - **💡 Hint:** a nudge toward the idea. It might say there's a checkmate, a way to win material, a threat to
-  deal with, or what to focus on in a quiet position (the same priority the guidance uses). Its facts don't
-  include where any pieces are, so it can't name the piece even by accident.
+  deal with, or what to focus on in a quiet position (the same priority the guidance uses).
 - **♟ Show piece:** highlights the piece to move on the board. Press it again (**➜ Show move**) and an
   arrow shows where it goes, with a sentence on why the move works.
 
-Hints work without Claude too, using built-in text.
+## Game review
 
-**Questions** (needs Claude): type things like "what about Nf5?", "is my knight safe?", "can I castle?" or
-"why was that a blunder?".
-- **Mentioned moves get checked:** if you name moves (in notation, or as "knight to f5"), the engine
-  evaluates up to three of them first, and the coach answers from those results.
-- **Illegal moves:** if a move you name isn't possible, it says so.
-- **No unrequested answers:** the engine's best moves are only shared when you ask what to play, and the
-  coach won't reveal the move you're retrying.
-- **Engine verdict:** answers include the same one-line verdict the hints use, such as "you can't keep the
-  pawn on d5, so develop instead", which keeps the advice consistent.
-- **Usage:** each hint or question is one short request on your plan.
+When the game ends, **📊 Game review** appears in the coach panel. **📊 Review** next to the hint buttons
+opens it at any point during the game too.
+
+- **Accuracy:** a score from 0 to 100 for you and for the opponent. Each move scores by how much of your
+  winning chance it gave away (Lichess's formula). The game score averages the plain mean with the
+  harmonic mean, so a couple of blunders pull it down more than a plain average would.
+- **Grade counts:** how many great moves, best moves, inaccuracies, mistakes, misses and blunders each
+  side played.
+- **Graph:** your winning chances move by move, with a dot on each key moment. Click it, or use ← and →,
+  to see any move on the board, with the eval bar for that position.
+- **Key moments:** your great moves, mistakes, missed wins, blunders and missed mates, with the coach's
+  comment on each. Click one to see it on the board. **Show best move** draws the engine's move in green
+  next to yours in blue.
+- **↻ Retry:** puts the board back to the position before a mistake, so you can look for something better.
+  Your try gets graded like any move ("Yes! Best move", or "Mistake" with the reason), and you can try
+  again or ask for the best move. This doesn't change the game itself: **← Back to the game** returns to it
+  as it was.
 
 ## Run
 
@@ -203,14 +144,13 @@ Then open http://localhost:5173. The backend listens on http://127.0.0.1:8000, a
 cd backend && .venv/bin/python -m pytest
 ```
 
-`tests/test_grading.py` checks the grading rules using made-up engine output. `tests/test_api.py` runs real
-positions through Stockfish, for example a hung queen, allowing mate, and missing mate in one.
-`tests/test_facts.py` checks the fact sheet, including that hidden answers really are absent.
-`tests/test_advice.py` checks what each hint level reveals and how moves are spotted in questions.
-`tests/test_guide.py` checks the guidance picks the right priority and never contains the move.
-`tests/test_explain.py` covers the API path, using a fake client plus the real SDK over a mock transport.
-`tests/test_claude_code.py` covers the Claude Code path against a fake `claude` program. The test suite
-never calls Claude, so it spends neither plan usage nor API credit.
+- `tests/test_grading.py` checks the grading rules using made-up engine output.
+- `tests/test_api.py` runs real positions through Stockfish, for example a hung queen, allowing mate,
+  and missing mate in one.
+- `tests/test_facts.py` checks why bad moves are bad, including positions from real games.
+- `tests/test_advice.py` checks what each hint level reveals.
+- `tests/test_guide.py` checks the guidance picks the right priority, deals with threats and checks the
+  way the engine does, and never contains the move.
 
 ## How moves are graded
 
@@ -247,24 +187,23 @@ Thresholds are constants at the top of `backend/app/grading.py`.
 ```
 backend/app/
   main.py      FastAPI routes: /api/levels, /api/config, /api/analyze, /api/grade, /api/bot-move,
-               /api/explain, /api/guide, /api/hint, /api/ask, /api/speech, /api/voices
+               /api/guide, /api/hint, /api/speech, /api/voices
   engine.py    Two Stockfish processes (analysis + opponent), position cache, null-move threat search
   grading.py   win%, material counting, classification -> MoveGrade
-  facts.py     The plain-language fact sheet Claude explains from
-  advice.py    Facts for hints (by level) and for questions, and spotting moves named in a question
-  guide.py     The coach's guidance before your move: the priority for the position, and its facts
-  prompts.py   System prompts for move comments, hints and questions
-  explain.py   Claude through the API (system prompt, streaming, refusal fallback)
-  claude_code.py  Claude through Claude Code's headless mode, on your Claude plan
+  facts.py     Why a bad move is bad, and whether a threat is real, from the engine's lines
+  coach.py     The coach's comments on your moves
+  advice.py    Hints, by level
+  guide.py     The coach's guidance before your move
   speech.py    The coach's voice: text to speech with Piper
-  coach.py     Built-in comment templates (fallback when Claude isn't available)
   levels.py    Opponent strength presets
   config.py    Settings from env vars (COACH_ANALYSIS_DEPTH, COACH_ENGINE_THREADS, ...)
 frontend/src/
-  useCoachGame.ts   Game state: turns, grading, retry / take-back flow, hints, questions, key moments
-  voice.ts          Playing the coach's voice, with notation turned into words
-  moveRefs.ts       Finding the moves a coach message mentions, so they can be shown on the board
-  components/       Board, EvalBar, CoachPanel, MoveList, NewGame
+  useCoachGame.ts       Game state: turns, grading, retry / take-back flow, hints, key moments
+  review.ts             Game review: accuracy, grade counts, key moments
+  useReviewPractice.ts  Retrying a move from the review without touching the game
+  voice.ts              Playing the coach's voice, with notation turned into words
+  moveRefs.ts           Finding the moves a coach message mentions, so they can be shown on the board
+  components/           Board, EvalBar, CoachPanel, GameReview, MoveList, NewGame
 ```
 
 The API is stateless. The client sends the whole move list (UCI, starting from the initial position) with every
@@ -274,7 +213,9 @@ request, and the server caches analysis by position.
 
 1. ~~Playable game against Stockfish at adjustable strength~~
 2. ~~Move grading, eval bar, take-backs and "try again"~~
-3. ~~Claude writes the explanations, using the engine facts in each `MoveGrade`~~
-4. ~~Hints that reveal a little more each time, and a chat where you can ask the coach questions (the coach checks
-   answers with the engine)~~
-5. End-of-game review, accuracy score, opening names, saved games
+3. ~~Coach guidance before each move, and hints that reveal a little more each time~~
+4. ~~Game review: accuracy, grade counts, eval graph, and retrying your mistakes~~
+5. Opening names, saved games, and puzzles from your own mistakes
+
+Claude once wrote the comments from an engine fact sheet, with a chat for questions. It was removed: the
+engine-based wording turned out to be more reliable.

@@ -1,72 +1,35 @@
-"""Facts for hints and for answering the student's questions.
+"""Hints for the student's move, from the engine's best line.
 
-Same rule as facts.py: Claude only sees what it may say. A level-1 hint's facts
-don't contain the move, so the hint can't give it away.
+Each level reveals more: the idea behind the move, then the piece to move, then the move itself.
 """
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import chess
-import chess.engine
 
 from .engine import Analysis, Line
-from .facts import (
-    GRADE_LABELS, PIECE_NAMES, color_name, describe_line, describe_move, describe_threat, format_eval,
-    loose_pieces, material_phrase, piece_list, tag_sides,
-)
-from .grading import Eval, MoveGrade, material_balance, material_change, numbered_san, win_percent
+from .facts import PIECE_NAMES, real_threat
+from .grading import material_change, numbered_san
 
 if TYPE_CHECKING:
     from .guide import Plan
 
 HINT_LEVELS = 3
-# Questions get at most this many of their mentioned moves checked by the engine.
-MAX_MENTIONED_MOVES = 3
-
-
-def game_header(board: chess.Board, student_color: chess.Color, *, pieces: bool = True) -> list[str]:
-    """Who plays what and the moves so far; with `pieces`, also where every piece stands."""
-    to_move = "the student" if board.turn == student_color else "the computer opponent"
-    header = [
-        f"The student plays {color_name(student_color)}; the computer opponent plays {color_name(not student_color)}.",
-        f"It is {color_name(board.turn)}'s move ({to_move}).",
-        "Moves so far: " + (board.root().variation_san(board.move_stack) or "(none yet)"),
-    ]
-    if pieces:
-        header += [
-            f"Position (FEN): {board.fen()}",
-            "Pieces: " + piece_list(board, chess.WHITE) + ". " + piece_list(board, chess.BLACK) + ".",
-        ]
-    return header + [material_now(board)]
-
-
-def material_now(board: chess.Board) -> str:
-    balance = material_balance(board, chess.WHITE)
-    if balance == 0:
-        return "Material is level."
-    ahead = "White" if balance > 0 else "Black"
-    return f"Material: {ahead} is {abs(balance)} point{'s' if abs(balance) != 1 else ''} ahead (pawn = 1)."
-
-
-# ---------------------------------------------------------------------------------------------- hints
 
 
 @dataclass(frozen=True)
 class Hint:
-    """Level 1 is the idea (Claude writes it), level 2 the piece to move (shown on the board, no Claude
-    needed), level 3 the move itself with Claude's reason why it works."""
+    """Level 1 is the idea, level 2 the piece to move (highlighted on the board), level 3 the move itself."""
 
-    facts: str  # what Claude may use for this level
-    template: str  # the built-in hint, used when Claude isn't available (and always at level 2)
+    text: str
     move: str | None  # UCI of the suggested move, only at the last level (for the arrow)
     square: str | None = None  # the piece to move, from level 2 on (for the highlight)
 
 
-def idea(board: chess.Board, analysis: Analysis, threat_text: str | None) -> tuple[str, int]:
+def idea(board: chess.Board, analysis: Analysis, threat: Line | None) -> tuple[str, int]:
     """What the best line is about: ("mate", moves), ("material", points won), ("defend", 0) when it
     parries the opponent's threat, ("concede", points lost) when even the best line can't keep the
     material, or ("position", 0)."""
@@ -76,7 +39,7 @@ def idea(board: chess.Board, analysis: Analysis, threat_text: str | None) -> tup
     gain = material_change(board, analysis.best.pv, board.turn)
     if gain >= 1:
         return "material", gain
-    if not threat_text:
+    if not real_threat(board, threat):
         # Without a threat, a small loss is usually an exchange still going on where the line was cut off.
         return "position", 0
     return ("concede", -gain) if gain < 0 else ("defend", 0)
@@ -94,96 +57,76 @@ def threatened(board: chess.Board, threat: Line | None) -> str | None:
     return f"{PIECE_NAMES[target.piece_type]} on {chess.square_name(threat.move.to_square)}"
 
 
-def threat_answer(board: chess.Board, best: chess.Move, threat: Line | None) -> tuple[str, str] | None:
-    """How the engine's best move meets the opponent's threat, as (kind, sentence), without naming the move.
-
-    kind: "capture" (take the attacking piece), "move" (move the attacked piece away), "mate", "check" (a
-    check first), "defend", "block", or "ignore" (something stronger than defending). None when there's no
-    real threat (describe_threat), so there's nothing to answer.
-    Without this, Claude tends to assume "move the attacked piece", even when the answer is to take the attacker.
+def threat_answer(board: chess.Board, best: chess.Move, threat: Line | None) -> str | None:
+    """How the engine's best move meets the opponent's threat: "capture" (take the attacking piece),
+    "move" (move the attacked piece away), "mate", "check" (a check first), "block", "defend", or
+    "ignore" (something stronger than defending). None when there's no real threat to meet.
+    Without this, the coach would say "move the attacked piece" even when the answer is to take the attacker.
     """
-    if threat is None or describe_threat(board, threat) is None:
+    if not real_threat(board, threat):
         return None
     me = board.turn
     passed = board.copy(stack=False)
     passed.push(chess.Move.null())
     attacker_sq, target_sq = threat.move.from_square, threat.move.to_square
-    attacker, target = passed.piece_at(attacker_sq), board.piece_at(target_sq)
-    if attacker is None:
+    if passed.piece_at(attacker_sq) is None:
         return None
-    attacker_label = f"{PIECE_NAMES[attacker.piece_type]} on {chess.square_name(attacker_sq)}"
-    target_label = f"{PIECE_NAMES[target.piece_type]} on {chess.square_name(target_sq)}" if target else None
+    target = board.piece_at(target_sq)
+    mine = target is not None and target.color == me
     after = board.copy(stack=False)
     after.push(best)
     if best.to_square == attacker_sq:
-        return "capture", (
-            f"How the engine meets the threat: by capturing the attacking piece itself, the opponent's "
-            f"{attacker_label}. Moving the attacked piece away instead is not the best answer here."
-        )
-    if target_label and target.color == me and best.from_square == target_sq:
-        return "move", f"How the engine meets the threat: by moving the attacked {target_label} to safety."
+        return "capture"
+    if mine and best.from_square == target_sq:
+        return "move"
     if after.is_checkmate():
-        return "mate", "How the engine meets the threat: it doesn't need to, because the student can give checkmate."
+        return "mate"
     if after.is_check():
-        return "check", "How the engine meets the threat: with a check first, which the opponent has to answer."
-    if target_label and target.color == me:
+        return "check"
+    if mine:
         if not after.is_attacked_by(not me, target_sq):
-            return "block", f"How the engine meets the threat: by blocking the attack on the {target_label}."
+            return "block"
         if len(after.attackers(me, target_sq)) > len(board.attackers(me, target_sq)):
-            return "defend", f"How the engine meets the threat: by defending the {target_label}."
-    return "ignore", (
-        "How the engine meets the threat: it doesn't defend directly, because it has something stronger in mind."
+            return "defend"
+    return "ignore"
+
+
+def checkers(board: chess.Board) -> str:
+    """The pieces giving check to the side to move: 'knight on e2'."""
+    return " and ".join(f"{PIECE_NAMES[board.piece_type_at(s)]} on {chess.square_name(s)}" for s in board.checkers())
+
+
+def check_answer(board: chess.Board, best: chess.Move) -> str | None:
+    """When the side to move is in check, how the engine's best move gets out of it: "capture" (take
+    the checking piece), "king" (move the king) or "block". None when not in check."""
+    if not board.is_check():
+        return None
+    if best.to_square in board.checkers():
+        return "capture"
+    if best.from_square == board.king(board.turn):
+        return "king"
+    return "block"
+
+
+def check_text(board: chess.Board, answer: str) -> str:
+    """'Your king on g1 is in check from the knight on e2. ...' Naming both squares matters: "you're in
+    check from the knight" was once read as the opponent's king being in check."""
+    return f"Your king on {chess.square_name(board.king(board.turn))} is in check from the {checkers(board)}. " + (
+        "Before you move the king, see whether you can capture the checking piece." if answer == "capture"
+        else "Look at every way out: moving the king, blocking, or capturing."
     )
 
 
-def idea_fact(kind: str, amount: int, target: str | None = None) -> str:
-    """The engine's verdict on what matters most; `target` is what the opponent threatens ("pawn on d5")."""
-    if kind == "concede" and target:
-        return (
-            f"The student can't keep the {target}: every good move lets it go (about {amount} "
-            f"point{'s' if amount != 1 else ''} of material back) and develops or improves the position instead. "
-            f"Trying to hold on to the {target} is not what the engine recommends."
-        )
-    return {
-        "mate": f"The student has a forced checkmate in {amount} against the opponent's king.",
-        "material": f"The student can win about {amount} point{'s' if amount != 1 else ''} of material (pawn = 1).",
-        "defend": "The most important thing is dealing with the opponent's threat.",
-        "concede": (
-            f"Even the best move can't keep all the material: it gives back about {amount} "
-            f"point{'s' if amount != 1 else ''} and concentrates on the student's development and position instead "
-            "of defending."
-        ),
-        "position": "There's no immediate tactic: the best move improves the student's position.",
-    }[kind]
-
-
-def hint(
-    board: chess.Board,
-    analysis: Analysis,
-    threat: Line | None,
-    level: int,
-    student_color: chess.Color,
-    focus: Plan | None = None,
-) -> Hint:
+def hint(board: chess.Board, analysis: Analysis, threat: Line | None, level: int, focus: Plan | None = None) -> Hint:
     """A hint for the side to move (the student). Higher levels reveal more. `focus` is the coach's
     plan for the position (guide.plan): in quiet positions the hint points to the same priority."""
     best = analysis.best
-    threat_text = describe_threat(board, threat)
-    kind, amount = idea(board, analysis, threat_text)
-    # An idea-only hint gets no piece positions: with them, Claude tends to work out and name the piece.
-    facts = game_header(board, student_color, pieces=level > 1)
-
+    kind, amount = idea(board, analysis, threat)
     quiet_focus = kind == "position" and focus is not None and not focus.urgent
-    if quiet_focus:
-        facts.append(f"What matters most now, according to the engine: {focus.priority}")
-    else:
-        facts.append(idea_fact(kind, amount, threatened(board, threat)))
-    if threat_text:
-        facts.append(threat_text)
     answer = threat_answer(board, best.move, threat)
-    if answer:
-        facts.append(answer[1])
-    template = focus.template if quiet_focus else {
+    in_check = check_answer(board, best.move)
+
+    text = focus.text if quiet_focus else {
         "mate": ("There's checkmate in one here. Look at every check you can give." if amount == 1
                  else f"There's a forced checkmate in {amount} here. Start by looking at every check you can give."),
         "material": "There's a way to win material here. Look for captures, checks, and pieces you can attack twice.",
@@ -192,18 +135,16 @@ def hint(
                    "that develops a piece or improves your position the most.",
         "position": "There's no immediate tactic here. Find your least active piece and give it a better square.",
     }[kind]
-    if answer and answer[0] == "capture" and not quiet_focus:
-        template = "Something of yours is under attack. Before you move it away, see whether you can capture the attacker."
+    if answer == "capture" and not quiet_focus:
+        text = "Something of yours is under attack. Before you move it away, see whether you can capture the attacker."
+    if in_check and kind != "mate":
+        text = check_text(board, in_check)
 
     if level >= 2:
         piece = board.piece_at(best.move.from_square)
         where = chess.square_name(best.move.from_square)
         kinds = [k for k, yes in (("a capture", board.is_capture(best.move)), ("a check", board.gives_check(best.move))) if yes]
-        piece_fact = f"The move to find is made by the student's {PIECE_NAMES[piece.piece_type]} on {where}."
-        if board.is_castling(best.move):
-            piece_fact = "The move to find is castling."
-        facts.append(piece_fact + (f" It is {' and '.join(kinds)}." if kinds else ""))
-        template = (
+        text = (
             "Think about castling." if board.is_castling(best.move)
             else f"Look at your {PIECE_NAMES[piece.piece_type]} on {where}."
             + (f" The move is {' and '.join(kinds)}." if kinds else "")
@@ -213,172 +154,17 @@ def hint(
     square = chess.square_name(best.move.from_square) if level >= 2 else None
     if level >= HINT_LEVELS:
         move = best.move.uci()
-        facts.append(
-            f"The engine's move: {numbered_san(board, best.move)} ({describe_move(board, best.move)}). "
-            f"Its main line: {describe_line(board, best.pv)}."
-        )
-        if kind == "material":
-            facts.append(f"Over that line, {material_phrase(board.turn, amount)}.")
-        template = f"The engine's move is {numbered_san(board, best.move)}." + {
+        why = {
             "mate": f" It forces checkmate in {amount}." if amount > 1 else " It's checkmate.",
             "material": f" It wins about {amount} point{'s' if amount != 1 else ''} of material.",
             "defend": " It deals with your opponent's threat.",
             "concede": " It gives some material back, but improves your position the most.",
             "position": " It's the best way to improve your position.",
         }[kind]
+        if in_check == "capture" and kind != "mate":
+            why = " It gets you out of check by taking the checking piece."
+        elif answer == "capture" and kind in ("defend", "position"):
+            why = " It takes the piece that was attacking you."
+        text = f"The engine's move is {numbered_san(board, best.move)}.{why}"
 
-    return Hint(tag_sides("\n".join(facts), student_color), template, move, square)
-
-
-# ------------------------------------------------------------------------------------------- questions
-
-_SAN = re.compile(r"(?<![\w-])(O-O-O|O-O|0-0-0|0-0|[KQRBNkqrbn]?[a-h]?[1-8]?x?[a-h][1-8](?:=?[QRBNqrbn])?)(?![\w-])")
-_SPOKEN = re.compile(r"\b(king|queen|rook|bishop|knight|pawn)\s+(?:to\s+|takes\s+|captures\s+|on\s+|x\s*)?([a-h][1-8])\b", re.I)
-_CASTLE = re.compile(r"\bcastl(?:e|es|ing)\b", re.I)
-_WANTS_A_MOVE = re.compile(
-    r"\b(best|should i|what (?:do|can|could|would|should) i|what to (?:play|do)|which move|what move|recommend|"
-    r"suggest|good move|what now|next move|help me)\b",
-    re.I,
-)
-
-
-def asks_for_a_move(question: str) -> bool:
-    """Whether the student is asking what to play (so the engine's best moves may be shared)."""
-    return bool(_WANTS_A_MOVE.search(question))
-_PIECE_TYPES = {name: piece_type for piece_type, name in PIECE_NAMES.items()}
-
-
-def mentioned_moves(board: chess.Board, text: str) -> tuple[list[chess.Move], list[str]]:
-    """Moves named in `text`: those legal for the side to move, and other move-like words that aren't."""
-    legal: list[chess.Move] = []
-    not_legal: list[str] = []
-
-    def add(move: chess.Move) -> None:
-        if move not in legal:
-            legal.append(move)
-
-    for piece_name, square in _SPOKEN.findall(text):
-        piece_type = _PIECE_TYPES[piece_name.lower()]
-        target = chess.parse_square(square.lower())
-        for move in board.legal_moves:
-            if move.to_square == target and board.piece_type_at(move.from_square) == piece_type:
-                add(move)
-    text = _SPOKEN.sub(" ", text)  # "knight to g5" shouldn't also count as the pawn move g5
-
-    # Moves already played ("why did I play e4?") aren't proposals, so they're not reported as illegal.
-    replay = board.root()
-    played = set()
-    for move in board.move_stack:
-        played.add(replay.san(move).rstrip("+#"))
-        replay.push(move)
-
-    for token in _SAN.findall(text):
-        san = token.replace("0", "O")
-        if san[-1] in "qrbn" and len(san) > 2 and (san[-2] == "=" or san[-2].isdigit()):
-            san = san[:-1] + san[-1].upper()  # "e8=q" -> "e8=Q"
-        candidates = [san]
-        if san[0] in "kqrnb" and len(san) >= 3:
-            candidates.append(san[0].upper() + san[1:])  # "nf5" -> "Nf5"; "bc4" is tried as a pawn move first
-        for candidate in candidates:
-            try:
-                add(board.parse_san(candidate))
-                break
-            except ValueError:
-                continue
-        else:
-            if token not in not_legal and san not in played:
-                not_legal.append(token)
-
-    if _CASTLE.search(text):
-        castling = [move for move in board.legal_moves if board.is_castling(move)]
-        for move in castling:
-            add(move)
-        if not castling:
-            not_legal.append("castling")
-    return legal[:MAX_MENTIONED_MOVES], not_legal[:MAX_MENTIONED_MOVES]
-
-
-@dataclass(frozen=True)
-class Hypothetical:
-    move: chess.Move
-    grade: MoveGrade
-    after: Analysis
-
-
-def position_facts(
-    board: chess.Board,
-    analysis: Analysis,
-    threat: Line | None,
-    *,
-    student_color: chess.Color,
-    last: MoveGrade | None,
-    reveal_last_best: bool,
-    hypotheticals: list[Hypothetical],
-    not_legal: list[str],
-    show_best_moves: bool,
-) -> str:
-    """The current position, for answering a question about it. The student's best moves are only
-    included with `show_best_moves`, so the coach can't volunteer them unasked."""
-    facts = game_header(board, student_color)
-    student_win = win_percent(analysis.score) if board.turn == student_color else 100 - win_percent(analysis.score)
-    facts.append(
-        f"Engine evaluation: {format_eval(Eval.from_white_score(analysis.white_score()))}. "
-        f"The student's chance of winning: {student_win:.0f}%."
-    )
-
-    if last is not None and board.move_stack:
-        before_last = board.copy()
-        last_move = before_last.pop()
-        by = "the student" if before_last.turn == student_color else "the computer opponent"
-        facts.append(
-            f"Last move ({by}): {numbered_san(before_last, last_move)}: {describe_move(before_last, last_move)}. "
-            f"Engine grade: {GRADE_LABELS[last.classification]}."
-        )
-        if before_last.turn == student_color and last.best_san and last.classification not in ("best", "great", "forced"):
-            if reveal_last_best:
-                facts.append(f"Instead of that move, the engine preferred {numbered_san(before_last, chess.Move.from_uci(last.best_move))}.")
-            else:
-                facts.append("The student is being offered a retry of that move, so the better move is deliberately not given here.")
-
-    if board.is_game_over(claim_draw=True):
-        facts.append("The game is over.")
-    else:
-        side = color_name(board.turn)
-        top = [
-            f"{numbered_san(board, line.move)} ({format_eval(Eval.from_white_score(chess.engine.PovScore(line.score, board.turn).white()))}; "
-            f"line: {describe_line(board, line.pv, plies=4)}; over that line, "
-            f"{material_phrase(board.turn, material_change(board, line.pv, board.turn))})"
-            for line in analysis.lines
-        ]
-        if show_best_moves or board.turn != student_color:
-            facts.append(f"The engine's top moves for {side}: " + " | ".join(top) + ".")
-        if board.turn == student_color:
-            threat_text = describe_threat(board, threat)
-            # The engine's one-line verdict on what matters now (the same one level-1 hints use), up front.
-            verdict = idea_fact(*idea(board, analysis, threat_text), threatened(board, threat))
-            facts.insert(len(game_header(board, student_color)), "ENGINE VERDICT (what matters most now): " + verdict)
-            if threat_text:
-                facts.append(threat_text)
-            if answer := threat_answer(board, analysis.best.move, threat):
-                facts.append(answer[1])
-        for color in (board.turn, not board.turn):
-            if loose := loose_pieces(board, color):
-                facts.append(f"Loose {color_name(color)} pieces: {'; '.join(loose)}.")
-
-    for h in hypotheticals:
-        mover = color_name(board.turn)
-        reply = ""
-        if h.after.best is not None:
-            after_board = board.copy(stack=False)
-            after_board.push(h.move)
-            reply = f" The best reply would be: {describe_line(after_board, h.after.best.pv, plies=4)}."
-        facts.append(
-            f"If {mover} played {numbered_san(board, h.move)} ({describe_move(board, h.move)}): engine grade "
-            f"{GRADE_LABELS[h.grade.classification]}; {mover}'s chance of winning would go from "
-            f"{h.grade.win_before:.0f}% to {h.grade.win_after:.0f}%.{reply} Over the first few moves, "
-            f"{material_phrase(board.turn, h.grade.material_change)}."
-            + (f" It would allow checkmate in {h.grade.allows_mate_in}." if h.grade.allows_mate_in else "")
-        )
-    if not_legal:
-        facts.append(f"Mentioned but not legal for {color_name(board.turn)} right now: {', '.join(not_legal)}.")
-    return tag_sides("\n".join(facts), student_color)
+    return Hint(text, move, square)

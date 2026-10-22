@@ -46,16 +46,6 @@ def find_stockfish() -> str:
     )
 
 
-def anthropic_credentials_present() -> bool:
-    """Whether the Anthropic SDK has credentials to find (it only complains at request time)."""
-    env = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_PROFILE", "ANTHROPIC_FEDERATION_RULE_ID")
-    if any(os.environ.get(name) for name in env):
-        return True
-    # Profiles saved by `ant auth login`.
-    config_dir = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "anthropic"
-    return config_dir.is_dir() and any(config_dir.iterdir())
-
-
 @dataclass(frozen=True)
 class Settings:
     stockfish_path: str
@@ -64,11 +54,6 @@ class Settings:
     analysis_lines: int  # MultiPV: how many candidate moves to evaluate per position
     analysis_threads: int
     hash_mb: int
-    # Who writes the comments: "auto" (an API key if there is one, else Claude Code on your plan),
-    # "api", "claude-code", or "off" (the built-in templates).
-    coach_ai: str
-    coach_model: str | None  # None: the default for whichever of the above is used
-    coach_effort: str
     voices_dir: Path | None  # Piper voice models for the coach's speech; None turns speech off
     voice: str | None  # the default voice's name; None picks one
 
@@ -83,9 +68,6 @@ class Settings:
             analysis_lines=int(os.environ.get("COACH_ANALYSIS_LINES", 3)),
             analysis_threads=int(os.environ.get("COACH_ENGINE_THREADS", max(1, min(8, cpus // 2)))),
             hash_mb=int(os.environ.get("COACH_ENGINE_HASH_MB", 256)),
-            coach_ai=os.environ.get("COACH_AI", "auto"),
-            coach_model=os.environ.get("COACH_MODEL") or None,
-            coach_effort=os.environ.get("COACH_EFFORT", "low"),
             # $COACH_VOICE: "off", or the name of the default voice (one of the models in ./voices).
             voices_dir=None if os.environ.get("COACH_VOICE") == "off" else PROJECT_ROOT / "voices",
             voice=os.environ.get("COACH_VOICE") or None,

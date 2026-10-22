@@ -1,5 +1,4 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { CoachConfig } from '../api'
 import { GRADE_META } from '../grades'
 import { findMoveRefs, type MoveRef } from '../moveRefs'
 import { moveLabel, type CoachMessage, type Phase } from '../useCoachGame'
@@ -8,8 +7,6 @@ interface CoachPanelProps {
   messages: CoachMessage[]
   phase: Phase
   canShowBest: boolean
-  /** Who writes the comments, or null when the built-in templates are used. */
-  coachAI: CoachConfig | null
   onTryAgain: () => void
   onShowBest: () => void
   onContinue: () => void
@@ -21,7 +18,9 @@ interface CoachPanelProps {
   canPiece: boolean
   pieceStep: number
   onPiece: () => void
-  onAsk: (question: string) => void
+  /** Open the game review: from the hint row at any time, and offered when the game is over. */
+  canReview: boolean
+  onReview: () => void
   /** Show a move mentioned in a message on the board (null: back to the game). */
   onPreview: (move: MoveRef | null) => void
 }
@@ -37,7 +36,6 @@ export function CoachPanel({
   messages,
   phase,
   canShowBest,
-  coachAI,
   onTryAgain,
   onShowBest,
   onContinue,
@@ -47,10 +45,10 @@ export function CoachPanel({
   canPiece,
   pieceStep,
   onPiece,
-  onAsk,
+  canReview,
+  onReview,
   onPreview,
 }: CoachPanelProps) {
-  const [question, setQuestion] = useState('')
   const feed = useRef<HTMLDivElement>(null)
   // Follow new text only while the reader is at the bottom, so scrolling up to reread isn't interrupted.
   // While they're scrolled up, a "Latest" button shows that something new has arrived.
@@ -68,7 +66,7 @@ export function CoachPanel({
     following.current = true
     setUnseen(false)
   }
-  const latestId = messages.findLast((m) => m.kind !== 'question')?.id
+  const latestId = messages.at(-1)?.id
 
   return (
     <section className="coach" aria-label="Coach">
@@ -103,6 +101,13 @@ export function CoachPanel({
           <button onClick={onContinue}>Keep my move</button>
         </div>
       )}
+      {phase === 'over' && (
+        <div className="coach-actions">
+          <button className="primary" onClick={onReview}>
+            📊 Game review
+          </button>
+        </div>
+      )}
       {phase === 'error' && (
         <div className="coach-actions">
           <button className="primary" onClick={onRetryFailed}>
@@ -122,28 +127,10 @@ export function CoachPanel({
         >
           {pieceStep === 0 ? '♟ Show piece' : '➜ Show move'}
         </button>
-      </div>
-      <form
-        className="ask"
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (!question.trim()) return
-          onAsk(question)
-          setQuestion('')
-        }}
-      >
-        <input
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          maxLength={500}
-          disabled={!coachAI}
-          placeholder={coachAI ? 'Ask the coach… e.g. "what about Nf5?"' : 'Questions need Claude (see README)'}
-          aria-label="Ask the coach a question"
-        />
-        <button type="submit" disabled={!coachAI || !question.trim()}>
-          Ask
+        <button type="button" className="review-button" onClick={onReview} disabled={!canReview} title="Accuracy, grades and key moments so far">
+          📊 Review
         </button>
-      </form>
+      </div>
     </section>
   )
 }
@@ -183,7 +170,7 @@ function Message({ message, latest, onPreview }: { message: CoachMessage; latest
     <p>
       {message.prefix}
       <MessageText text={message.text} context={message.context} onPreview={onPreview} />
-      {message.explaining && <span className="typing" aria-label="Coach is writing" />}
+      {message.loading && <span className="typing" aria-label="Coach is thinking" />}
     </p>
   )
   if (message.kind === 'grade' && grade) {
@@ -198,15 +185,6 @@ function Message({ message, latest, onPreview }: { message: CoachMessage; latest
           <span style={{ color: meta.color }}>{meta.label}</span>
         </div>
         {body}
-      </div>
-    )
-  }
-  if (message.kind === 'question') {
-    return (
-      <div className="bubble question">
-        <p>
-          <MessageText text={message.text} context={message.context} onPreview={onPreview} />
-        </p>
       </div>
     )
   }

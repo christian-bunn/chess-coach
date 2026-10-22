@@ -39,6 +39,7 @@ export interface MoveGrade {
   allows_mate_in: number | null
   delivers_mate: boolean
   retry_suggested: boolean
+  /** The coach's comment (on the student's moves). */
   message: string | null
   /** For the opponent's moves: what the student should focus on next, and whether it's urgent. */
   guide_topic?: string | null
@@ -72,41 +73,18 @@ async function request<T>(path: string, body?: unknown, signal?: AbortSignal): P
 }
 
 export interface CoachConfig {
-  /** Whether Claude writes the comments (otherwise the built-in templates do). */
-  coach_ai: boolean
-  model: string | null
-  /** "claude-code": through Claude Code on the user's Claude plan. "api": an API key, billed per request. */
-  via: 'claude-code' | 'api' | null
   /** Whether the backend can read comments aloud (a Piper voice is installed). */
   voice: boolean
 }
 
-/** One line of a streamed coach reply (comment, hint or answer). */
 export interface VoiceOption {
   name: string
   label: string
 }
 
-export type CoachEvent =
-  | { type: 'text'; text: string }
-  /** Discard what has streamed so far (a fallback model took over, or Claude failed). */
-  | { type: 'reset' }
-  /** The suggested move, sent first by the last hint level so the board can show it. */
-  | { type: 'move'; uci: string }
-  /** The piece to move, sent by the "show piece" hint. */
-  | { type: 'piece'; square: string }
-  /** What the coach's guidance is about, sent first by /guide. */
-  | { type: 'topic'; topic: string; urgent: boolean }
-  | { type: 'done'; text: string; source: 'claude' | 'template' }
-
 interface PositionRequest {
   moves: string[]
   student_color: 'white' | 'black'
-}
-
-export interface ExplainRequest extends PositionRequest {
-  /** False while a retry is on offer, so the comment can't give the answer away. */
-  reveal_best: boolean
 }
 
 export interface HintRequest extends PositionRequest {
@@ -114,52 +92,28 @@ export interface HintRequest extends PositionRequest {
   level: number
 }
 
-export type GuideRequest = PositionRequest
-
-export interface AskRequest extends PositionRequest {
-  question: string
-  /** Earlier questions and answers, oldest first, for context. */
-  history: { question: string; answer: string }[]
-  reveal_best: boolean
+export interface HintResult {
+  text: string
+  /** The piece to move (from level 2), highlighted on the board. */
+  square: string | null
+  /** The move itself (level 3, UCI), shown as an arrow. */
+  move: string | null
 }
 
-// Give up on a reply that takes longer than this; the caller keeps its fallback text.
-const STREAM_TIMEOUT_MS = 45_000
-
-/** POST `body` to `path` and pass each streamed event to `onEvent`; the server sends one JSON event per line. */
-async function streamCoach(path: string, body: unknown, onEvent: (event: CoachEvent) => void, signal?: AbortSignal) {
-  const timeout = AbortSignal.timeout(STREAM_TIMEOUT_MS)
-  const response = await fetch(`/api${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-  })
-  if (!response.ok || !response.body) throw new Error(`Server error (${response.status})`)
-  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
-  let buffered = ''
-  for (;;) {
-    const { value, done } = await reader.read()
-    if (done) break
-    buffered += value
-    const lines = buffered.split('\n')
-    buffered = lines.pop() ?? ''
-    for (const line of lines) if (line.trim()) onEvent(JSON.parse(line) as CoachEvent)
-  }
+export interface GuideResult {
+  text: string
+  /** What the guidance is about ("threat", "castle", ...), so the coach doesn't repeat itself. */
+  topic: string
+  urgent: boolean
 }
-
-type OnEvent = (event: CoachEvent) => void
 
 export const api = {
   config: () => request<CoachConfig>('/config'),
   levels: () => request<Level[]>('/levels'),
   voices: () => request<{ voices: VoiceOption[]; default: string | null }>('/voices'),
-  /** The coach's comment on the last move in `moves`. */
-  explain: (body: ExplainRequest, onEvent: OnEvent, signal?: AbortSignal) => streamCoach('/explain', body, onEvent, signal),
-  hint: (body: HintRequest, onEvent: OnEvent, signal?: AbortSignal) => streamCoach('/hint', body, onEvent, signal),
+  hint: (body: HintRequest, signal?: AbortSignal) => request<HintResult>('/hint', body, signal),
   /** The coach's guidance before the student's move. */
-  guide: (body: GuideRequest, onEvent: OnEvent, signal?: AbortSignal) => streamCoach('/guide', body, onEvent, signal),
-  ask: (body: AskRequest, onEvent: OnEvent, signal?: AbortSignal) => streamCoach('/ask', body, onEvent, signal),
+  guide: (body: PositionRequest, signal?: AbortSignal) => request<GuideResult>('/guide', body, signal),
   analyze: (moves: string[], signal?: AbortSignal) => request<Analysis>('/analyze', { moves }, signal),
   grade: (moves: string[], signal?: AbortSignal) => request<MoveGrade>('/grade', { moves }, signal),
   botMove: (moves: string[], level: string, signal?: AbortSignal) =>

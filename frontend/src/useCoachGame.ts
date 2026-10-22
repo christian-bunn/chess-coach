@@ -1,6 +1,6 @@
 import { Chess } from 'chess.js'
 import { useMemo, useRef, useState } from 'react'
-import { api, type Classification, type CoachEvent, type Eval, type Level, type MoveGrade } from './api'
+import { api, type Classification, type Eval, type Level, type MoveGrade } from './api'
 import { GOOD_GRADES } from './grades'
 import { speak, stopSpeaking } from './voice'
 
@@ -28,15 +28,12 @@ export interface Ply {
 
 export interface CoachMessage {
   id: number
-  /** 'question' is the student's own message; 'answer' and 'hint' come from the coach. */
-  kind: 'grade' | 'opponent' | 'guide' | 'info' | 'over' | 'error' | 'hint' | 'question' | 'answer'
+  kind: 'grade' | 'opponent' | 'guide' | 'info' | 'over' | 'error' | 'hint'
   text: string
-  /** The built-in text, shown until Claude's arrives and kept if Claude fails. */
-  template: string
   /** Shown before the comment, e.g. "You found it!". */
   prefix?: string
-  /** True while Claude's comment is still streaming in. */
-  explaining?: boolean
+  /** True while the text is still being fetched (hints and guidance). */
+  loading?: boolean
   /** For hints: which level (1-3). */
   hintLevel?: number
   /** Read aloud (when the voice is on) once its text is final. */
@@ -44,6 +41,15 @@ export interface CoachMessage {
   /** The game (UCI moves) when the message was written, so the moves it mentions can be shown on the board. */
   context?: string[]
   grade?: MoveGrade
+}
+
+/** The game as it stood when the review was opened. Practising moves in the review doesn't change it. */
+export interface ReviewSnapshot {
+  plies: Ply[]
+  evals: (Eval | null)[]
+  userColor: Side
+  /** How the game ended, or null if it's still going. */
+  result: string | null
 }
 
 interface GameState {
@@ -72,6 +78,8 @@ interface GameState {
   retryMode: RetryMode
   coachMode: CoachMode
   voice: boolean
+  review: ReviewSnapshot | null
+  reviewOpen: boolean
 }
 
 const SETTING_KEYS = { retryMode: 'chess-coach.retry-mode', coachMode: 'chess-coach.coach-mode', voice: 'chess-coach.voice' }
@@ -106,9 +114,9 @@ function message(
   kind: CoachMessage['kind'],
   text: string,
   grade?: MoveGrade,
-  extra?: Partial<Pick<CoachMessage, 'prefix' | 'explaining' | 'template' | 'hintLevel' | 'speak' | 'context'>>,
+  extra?: Partial<Pick<CoachMessage, 'prefix' | 'loading' | 'hintLevel' | 'speak' | 'context'>>,
 ): CoachMessage {
-  return { id: nextMessageId++, kind, text, template: text, grade, ...extra }
+  return { id: nextMessageId++, kind, text, grade, ...extra }
 }
 
 function toMove(uci: string) {
@@ -171,17 +179,16 @@ const INITIAL: GameState = {
   retryMode: 'mistakes',
   coachMode: 'key',
   voice: false,
+  review: null,
+  reviewOpen: false,
 }
 
 // In "key moments" mode the coach gives guidance when it's urgent, when the priority changes (at most every
 // GUIDE_GAP plies), or when it's been quiet for GUIDE_QUIET plies.
 const GUIDE_GAP = 4
 const GUIDE_QUIET = 8
-// Earlier questions and answers sent along with a new question, for context.
-const ASK_HISTORY = 4
 
-/** `coachAI`: whether the backend has Claude available to write the comments. */
-export function useCoachGame(coachAI: boolean) {
+export function useCoachGame() {
   const [state, setState] = useState<GameState>(() => ({
     ...INITIAL,
     retryMode: loadSetting(SETTING_KEYS.retryMode, ['mistakes', 'blunders', 'off'], 'mistakes'),
@@ -202,11 +209,9 @@ export function useCoachGame(coachAI: boolean) {
     pending.current = new AbortController()
   }
 
-  // Claude's comments stream in after each grade. Only a new game cancels them: after a take-back
-  // the comment on the taken-back move is still worth reading.
-  const explanations = useRef(new AbortController())
-  const coachAIRef = useRef(coachAI)
-  coachAIRef.current = coachAI
+  // Hints and guidance being fetched. Only a new game cancels them: after a take-back, a hint that
+  // arrives late is still posted (though it isn't shown on the board any more).
+  const replies = useRef(new AbortController())
 
   /** Read message `id` aloud if it's meant to be and the voice is on. */
   const announce = (id: number) => {
@@ -218,56 +223,21 @@ export function useCoachGame(coachAI: boolean) {
     update((s) => ({ ...s, messages: s.messages.flatMap((m) => (m.id === id ? (fn(m) ?? []) : [m])) }))
 
   /**
-   * Stream a coach reply into message `id`, replacing its template text as it arrives. If the reply
-   * fails, the template stays; a message left with no text at all is removed.
+   * Fill message `id` (posted with `loading`) with the text `request` comes back with. If it fails,
+   * `fallback` is shown instead; with no fallback the message is removed.
    */
-  const streamInto = async (
-    id: number,
-    run: (onEvent: (event: CoachEvent) => void, signal: AbortSignal) => Promise<void>,
-    on: { move?: (uci: string) => void; piece?: (square: string) => void; topic?: (topic: string) => void } = {},
-  ) => {
-    const signal = explanations.current.signal
-    let streamed = ''
-    let finished = false
-    const finish = (text?: string) => {
-      finished = true
-      editMessage(id, (m) => {
-        const final = text || m.template
-        return final ? { ...m, text: final, explaining: false } : null
-      })
-      announce(id)
-    }
+  const fill = async (id: number, request: (signal: AbortSignal) => Promise<string>, fallback?: string) => {
+    const signal = replies.current.signal
+    let text: string | undefined
     try {
-      await run((event) => {
-        if (signal.aborted) return
-        if (event.type === 'text') {
-          streamed += event.text
-          const text = streamed
-          editMessage(id, (m) => ({ ...m, text }))
-        } else if (event.type === 'reset') {
-          streamed = ''
-          editMessage(id, (m) => ({ ...m, text: m.template }))
-        } else if (event.type === 'move') {
-          on.move?.(event.uci)
-        } else if (event.type === 'piece') {
-          on.piece?.(event.square)
-        } else if (event.type === 'topic') {
-          on.topic?.(event.topic)
-        } else {
-          finish(event.text)
-        }
-      }, signal)
-      if (!finished && !signal.aborted) finish() // the stream ended early: keep the template
+      text = await request(signal)
     } catch {
-      if (!signal.aborted) finish()
+      text = fallback
     }
+    if (signal.aborted) return
+    editMessage(id, (m) => (text ? { ...m, text, loading: false } : null))
+    announce(id)
   }
-
-  /** Swap message `id`'s template for Claude's comment on the last move in `moves`. */
-  const explainMove = (id: number, moves: string[], revealBest: boolean) =>
-    streamInto(id, (onEvent, signal) =>
-      api.explain({ moves, student_color: stateRef.current.userColor, reveal_best: revealBest }, onEvent, signal),
-    )
 
   const fail = (error: unknown, what: 'grade' | 'bot') => {
     const reason = error instanceof Error ? error.message : String(error)
@@ -323,20 +293,17 @@ export function useCoachGame(coachAI: boolean) {
   const guideStudent = (grade?: MoveGrade) => {
     const s = stateRef.current
     const context = s.plies.map((p) => p.uci)
-    const note = message('guide', '', grade, {
-      template: grade?.message ?? '',
-      explaining: true,
-      speak: true,
-      context,
-    })
+    const note = message('guide', '', grade, { loading: true, speak: true, context })
     const ply = s.plies.length
     update((s) => ({
       ...s,
       messages: [...s.messages, note],
       lastGuide: grade?.guide_topic ? { topic: grade.guide_topic, ply } : s.lastGuide,
     }))
-    void streamInto(note.id, (onEvent, signal) => api.guide({ moves: context, student_color: s.userColor }, onEvent, signal), {
-      topic: (topic) => update((s) => ({ ...s, lastGuide: { topic, ply } })),
+    void fill(note.id, async (signal) => {
+      const guide = await api.guide({ moves: context, student_color: s.userColor }, signal)
+      update((s) => ({ ...s, lastGuide: { topic: guide.topic, ply } }))
+      return guide.text
     })
   }
 
@@ -358,11 +325,9 @@ export function useCoachGame(coachAI: boolean) {
       const key = isKeyMove(grade, found)
       // In 'key' mode, routine moves get just their badge, and inaccuracies a short built-in note.
       const show = coachMode === 'all' || key || grade.classification === 'inaccuracy'
-      const explain = show && coachAIRef.current && (coachMode === 'all' || key)
       const note = show
         ? message('grade', grade.message ?? '', grade, {
             prefix: found ? 'You found it! ' : undefined,
-            explaining: explain,
             speak: key,
             context: plies.map((p) => p.uci),
           })
@@ -376,9 +341,7 @@ export function useCoachGame(coachAI: boolean) {
         phase: offerRetry ? 'decision' : s.phase,
         pendingRetry: offerRetry ? grade : null,
       }))
-      // While a retry is on offer, Claude isn't told the best move, so it can't give the answer away.
-      if (note && explain) void explainMove(note.id, plies.map((p) => p.uci), !offerRetry)
-      else if (note) announce(note.id)
+      if (note) announce(note.id)
       if (!offerRetry) continueGame()
     } catch (error) {
       if (!signal.aborted) fail(error, 'grade')
@@ -388,8 +351,8 @@ export function useCoachGame(coachAI: boolean) {
   const newGame = (color: Side | 'random', level: Level) => {
     cancelPending()
     stopSpeaking()
-    explanations.current.abort()
-    explanations.current = new AbortController()
+    replies.current.abort()
+    replies.current = new AbortController()
     const userColor: Side = color === 'random' ? (Math.random() < 0.5 ? 'white' : 'black') : color
     const intro =
       `You're playing ${userColor} against ${level.name} (about ${level.elo}). ` +
@@ -527,20 +490,22 @@ export function useCoachGame(coachAI: boolean) {
     const s = stateRef.current
     const at = s.plies.length
     const moves = s.plies.map((p) => p.uci)
-    const note = message('hint', '', undefined, {
-      template: "I couldn't come up with a hint just now.",
-      explaining: true,
-      hintLevel: level,
-      speak: true,
-      context: moves,
-    })
+    const note = message('hint', '', undefined, { loading: true, hintLevel: level, speak: true, context: moves })
     update((s) => ({ ...s, messages: [...s.messages, note] }))
-    // Only show the piece or the move on the board if the student hasn't moved on in the meantime.
-    const stillHere = () => stateRef.current.plies.length === at
-    void streamInto(note.id, (onEvent, signal) => api.hint({ moves, student_color: s.userColor, level }, onEvent, signal), {
-      piece: (square) => stillHere() && update((s) => ({ ...s, pieceHint: square })),
-      move: (uci) => stillHere() && update((s) => ({ ...s, hintArrow: { from: uci.slice(0, 2), to: uci.slice(2, 4) } })),
-    })
+    void fill(
+      note.id,
+      async (signal) => {
+        const result = await api.hint({ moves, student_color: s.userColor, level }, signal)
+        // Only show the piece or the move on the board if the student hasn't moved on in the meantime.
+        if (stateRef.current.plies.length === at) {
+          const { move, square } = result
+          if (move) update((s) => ({ ...s, hintArrow: { from: move.slice(0, 2), to: move.slice(2, 4) } }))
+          else if (square) update((s) => ({ ...s, pieceHint: square }))
+        }
+        return result.text
+      },
+      "I couldn't come up with a hint just now.",
+    )
   }
 
   /** 💡 Hint: point toward the idea. */
@@ -560,37 +525,16 @@ export function useCoachGame(coachAI: boolean) {
     hint(step === 0 ? 2 : 3)
   }
 
-  /** Ask the coach a question about the current position. */
-  const ask = (question: string) => {
+  /** Open the game review, on the game as it stands now. */
+  const openReview = () => {
     const s = stateRef.current
-    question = question.trim()
-    if (!question || s.phase === 'setup') return
-    // Earlier finished exchanges, for context.
-    const history: { question: string; answer: string }[] = []
-    s.messages.forEach((m, i) => {
-      const reply = s.messages[i + 1]
-      if (m.kind === 'question' && reply?.kind === 'answer' && !reply.explaining) {
-        history.push({ question: m.text, answer: reply.text })
-      }
-    })
-    const context = s.plies.map((p) => p.uci)
-    const asked = message('question', question, undefined, { context })
-    const answer = message('answer', '', undefined, {
-      template: "Sorry, I couldn't answer that just now. Try asking again.",
-      explaining: true,
-      speak: true,
-      context,
-    })
-    update((s) => ({ ...s, messages: [...s.messages, asked, answer] }))
-    const body = {
-      moves: s.plies.map((p) => p.uci),
-      student_color: s.userColor,
-      question,
-      history: history.slice(-ASK_HISTORY),
-      reveal_best: s.phase !== 'decision',
-    }
-    void streamInto(answer.id, (onEvent, signal) => api.ask(body, onEvent, signal))
+    if (s.phase === 'setup' || !s.plies.some((p) => p.grade)) return
+    stopSpeaking()
+    const result = s.phase === 'over' ? (gameOverText(buildGame(s.plies), s.userColor) ?? null) : null
+    update((s) => ({ ...s, review: { plies: s.plies, evals: s.evals, userColor: s.userColor, result }, reviewOpen: true }))
   }
+
+  const closeReview = () => update((s) => ({ ...s, reviewOpen: false }))
 
   const setRetryMode = (retryMode: RetryMode) => {
     update((s) => ({ ...s, retryMode }))
@@ -613,6 +557,7 @@ export function useCoachGame(coachAI: boolean) {
   const canRedo = state.phase !== 'setup' && state.redo.length > 0
   const hints = state.hints.at === state.plies.length ? state.hints : { idea: false, piece: 0 }
   const myTurn = state.phase === 'user' && game.turn() === state.userColor[0]
+  const canReview = state.phase !== 'setup' && state.plies.some((p) => p.grade)
 
   return {
     ...state,
@@ -623,9 +568,10 @@ export function useCoachGame(coachAI: boolean) {
     /** 0: "show piece" not used yet, 1: the piece is shown (next press shows the move), 2: both shown. */
     pieceStep: hints.piece,
     canPiece: myTurn && hints.piece < 2,
+    canReview,
     actions: {
-      newGame, playMove, tryAgain, continueGame, undo, forward, retryFailed, requestIdea, revealPiece, ask,
-      setRetryMode, setCoachMode, setVoice,
+      newGame, playMove, tryAgain, continueGame, undo, forward, retryFailed, requestIdea, revealPiece,
+      openReview, closeReview, setRetryMode, setCoachMode, setVoice,
     },
   }
 }

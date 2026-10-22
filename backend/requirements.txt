@@ -1,7 +1,6 @@
 fastapi>=0.115
 uvicorn[standard]>=0.30
 chess>=1.11
-anthropic>=2.1
 piper-tts>=1.8
 # tests
 pytest>=8

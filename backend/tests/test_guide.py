@@ -5,8 +5,9 @@ import chess.engine
 import pytest
 
 from app.engine import Analysis, Line
-from app.advice import threat_answer
-from app.guide import at_home, guide_facts, king_safety, plan, stage
+from app.advice import hint, threat_answer
+from app.guide import at_home, guidance, plan, stage
+from app.grading import grade_move
 from tests.test_grading import board_after, fake_analysis
 
 Cp, Mate = chess.engine.Cp, chess.engine.Mate
@@ -36,8 +37,7 @@ def test_threat_is_urgent():
     board = board_after("e4", "e5", "Qh5", "Nf6")  # the knight attacks the queen
     p = plan(board, fake_analysis(board, ("Qe2", Cp(0))), threat_line(board, "Nxh5", Cp(900)))
     assert p.topic == "threat" and p.urgent
-    assert p.template == "Watch out: your queen on h5 is under attack. Find it a safe square."
-    assert "How the engine meets the threat: by moving the attacked queen on h5 to safety." in p.facts
+    assert p.text == "Watch out: your queen on h5 is under attack. Find it a safe square."
 
 
 def test_a_mate_to_find_is_urgent():
@@ -56,15 +56,12 @@ def test_board_checks():
     board = board_after("e4", "e5", "Nf3", "Nc6")
     assert stage(board) == "opening"
     assert at_home(board, chess.WHITE) == ["knight on b1", "bishop on c1", "bishop on f1"]
-    assert king_safety(board, chess.WHITE) == "is still on e1 and can castle kingside or queenside"
 
 
 def test_guidance_never_contains_the_move():
     board = board_after("e4", "e5", "Nf3", "Nc6", "Bc4", "Bc5", "d3", "Nf6", "Nc3", "d6")
     p = plan(board, fake_analysis(board, ("O-O", Cp(30))), None)
-    text = guide_facts(board, p, None, chess.WHITE)
-    assert "6.O-O" not in text and "O-O" not in text
-    assert "castling is one of the engine's top choices" in text  # the plan, not the move
+    assert p.topic == "castle" and "O-O" not in p.text
 
 
 def test_a_chance_and_a_threat_together():
@@ -74,7 +71,7 @@ def test_a_chance_and_a_threat_together():
     line = (board.parse_san("Qxe5+"), reply.parse_san("Be7"))
     p = plan(board, Analysis(board.turn, Cp(150), (Line(Cp(150), line),)), threat_line(board, "Nxh5", Cp(900)))
     assert p.topic == "material"
-    assert p.template.startswith("Your queen on h5 is under attack, but there's also a chance to win material.")
+    assert p.text.startswith("Your queen on h5 is under attack, but there's also a chance to win material.")
 
 
 def test_capturing_the_attacker():
@@ -82,21 +79,16 @@ def test_capturing_the_attacker():
     # taking the knight. The coach used to say "move your queen out of danger".
     board = chess.Board("1k1r3r/ppp3pp/4Ppq1/5n2/2B3P1/4QN2/PPPN2P1/R3K3 w - - 0 18")
     p = plan(board, fake_analysis(board, ("gxf5", Cp(400))), threat_line(board, "Nxe3", Cp(900)))
-    assert ("How the engine meets the threat: by capturing the attacking piece itself, the opponent's knight "
-            "on f5. Moving the attacked piece away instead is not the best answer here.") in p.facts
-    assert p.template.startswith("Your queen on e3 is under attack, but don't just move it away")
-    # Something urgent: the template is the main point, and the quiet-position picture is left out.
-    text = guide_facts(board, p, None, chess.WHITE)
-    assert "MAIN POINT: Your queen on e3 is under attack, but don't just move it away" in text
-    assert "Open files" not in text and "starting squares" not in text
+    assert p.text == ("Your queen on e3 is under attack, but don't just move it away: see whether you can capture "
+                      "the attacker. That also wins material.")
 
 
 def test_threat_answers():
     # Black's knight on f5 attacks the queen on e3.
     board = chess.Board("1k1r3r/ppp3pp/4Ppq1/5n2/2B3P1/4QN2/PPPN2P1/R3K3 w - - 0 18")
     threat = threat_line(board, "Nxe3", Cp(900))
-    assert threat_answer(board, board.parse_san("gxf5"), threat)[0] == "capture"
-    assert threat_answer(board, board.parse_san("Qe4"), threat)[0] == "move"
+    assert threat_answer(board, board.parse_san("gxf5"), threat) == "capture"
+    assert threat_answer(board, board.parse_san("Qe4"), threat) == "move"
     # No real threat (nothing to win), so nothing to answer.
     assert threat_answer(board, board.parse_san("gxf5"), threat_line(board, "a6", Cp(0))) is None
 
@@ -104,5 +96,31 @@ def test_threat_answers():
 def test_mate_beats_answering_the_threat():
     # Black's knight on g3 attacks the rook on h1, but 6.Qxf7# ends the game.
     board = chess.Board("r1bqkb1r/pppp1ppp/8/4p3/2B1P3/5Qn1/PPPP1PP1/RNB1K2R w KQkq - 1 6")
-    kind, text = threat_answer(board, board.parse_san("Qxf7#"), threat_line(board, "Nxh1", Cp(500)))
-    assert kind == "mate" and "checkmate" in text
+    assert threat_answer(board, board.parse_san("Qxf7#"), threat_line(board, "Nxh1", Cp(500))) == "mate"
+
+
+def test_check_names_the_king_and_the_checking_piece():
+    # From a real game: after 24...Ne2+ the coach said "your king is in check from the knight", which was
+    # read as the opponent's king. Now it says which king and which piece, and how to get out.
+    board = chess.Board("r5k1/5pp1/7B/1B6/2pP4/2n2Q2/PPP2PPN/R5K1 b - - 0 24")
+    board.push_san("Ne2+")
+    analysis = fake_analysis(board, ("Qxe2", Cp(900)))
+    p = plan(board, analysis, None)
+    assert p.topic == "check" and p.urgent
+    assert p.text == ("Your king on g1 is in check from the knight on e2. Before you move the king, see whether "
+                      "you can capture the checking piece.")
+    assert hint(board, analysis, None, 1, p).text == p.text
+    assert hint(board, analysis, None, 3, p).text == (
+        "The engine's move is 25.Qxe2. It gets you out of check by taking the checking piece."
+    )
+
+
+def test_guidance_mentions_the_opponents_mistake():
+    board = board_after("e4", "e5", "Qh5", "Nc6", "Bc4")
+    last = grade_move(board, board.parse_san("Nf6"), fake_analysis(board, ("g6", Cp(-50))),
+                      fake_analysis(board_after("e4", "e5", "Qh5", "Nc6", "Bc4", "Nf6"), ("Qxf7#", Mate(1))))
+    after = board_after("e4", "e5", "Qh5", "Nc6", "Bc4", "Nf6")
+    p = plan(after, fake_analysis(after, ("Qxf7#", Mate(1))), None)
+    assert last.classification == "blunder"
+    assert guidance(p, last) == "Your opponent just blundered! There's checkmate in one here! Look at every check you can give."
+    assert guidance(p, None) == p.text
