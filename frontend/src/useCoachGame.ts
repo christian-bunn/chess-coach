@@ -41,6 +41,8 @@ export interface CoachMessage {
   hintLevel?: number
   /** Read aloud (when the voice is on) once its text is final. */
   speak?: boolean
+  /** The game (UCI moves) when the message was written, so the moves it mentions can be shown on the board. */
+  context?: string[]
   grade?: MoveGrade
 }
 
@@ -99,7 +101,7 @@ function message(
   kind: CoachMessage['kind'],
   text: string,
   grade?: MoveGrade,
-  extra?: Partial<Pick<CoachMessage, 'prefix' | 'explaining' | 'template' | 'hintLevel' | 'speak'>>,
+  extra?: Partial<Pick<CoachMessage, 'prefix' | 'explaining' | 'template' | 'hintLevel' | 'speak' | 'context'>>,
 ): CoachMessage {
   return { id: nextMessageId++, kind, text, template: text, grade, ...extra }
 }
@@ -283,7 +285,10 @@ export function useCoachGame(coachAI: boolean) {
       const notable = !!grade.message
       const show = notable || (stateRef.current.coachMode === 'all' && coachAIRef.current)
       const explain = show && coachAIRef.current
-      const note = show ? message('opponent', grade.message ?? '', grade, { explaining: explain, speak: notable }) : null
+      const context = [...plies.map((p) => p.uci), grade.uci]
+      const note = show
+        ? message('opponent', grade.message ?? '', grade, { explaining: explain, speak: notable, context })
+        : null
       update((s) =>
         finishTurn(
           {
@@ -295,7 +300,7 @@ export function useCoachGame(coachAI: boolean) {
           'user',
         ),
       )
-      if (note && explain) void explainMove(note.id, [...plies.map((p) => p.uci), grade.uci], true)
+      if (note && explain) void explainMove(note.id, context, true)
       else if (note) announce(note.id)
     } catch (error) {
       if (!signal.aborted) fail(error, 'bot')
@@ -326,6 +331,7 @@ export function useCoachGame(coachAI: boolean) {
             prefix: found ? 'You found it! ' : undefined,
             explaining: explain,
             speak: key,
+            context: plies.map((p) => p.uci),
           })
         : null
       update((s) => ({
@@ -356,7 +362,8 @@ export function useCoachGame(coachAI: boolean) {
       `You're playing ${userColor} against ${level.name} (about ${level.elo}). ` +
       (stateRef.current.coachMode === 'key'
         ? "Every move gets a grade badge, and I'll speak up at the moments that matter. If you slip up, you can try again."
-        : "I'll comment on every move, and if you slip up I'll give you the chance to try again.")
+        : "I'll comment on every move, and if you slip up I'll give you the chance to try again.") +
+      ' Moves are written like 11.c3, meaning White\'s 11th move, a pawn to c3. Point at one to see it on the board.'
     update((s) => ({
       ...INITIAL,
       retryMode: s.retryMode,
@@ -400,7 +407,7 @@ export function useCoachGame(coachAI: boolean) {
     if (stateRef.current.phase !== 'decision' || !grade) return
     cancelPending()
     const text = reveal ? `The best move was ${grade.best_san}. Go ahead and play it.` : retryHint(grade)
-    const note = message('info', text, undefined, { speak: true })
+    const note = message('info', text, undefined, { speak: true, context: stateRef.current.plies.map((p) => p.uci) })
     update((s) => ({
       ...s,
       plies: s.plies.slice(0, grade.ply - 1),
@@ -432,7 +439,7 @@ export function useCoachGame(coachAI: boolean) {
       hintArrow: null,
       failed: null,
       redo: [...s.redo, { plies: s.plies.slice(userIndex), evals: s.evals.slice(userIndex + 1) }],
-      messages: [...s.messages, message('info', `Took back ${label}.`)],
+      messages: [...s.messages, message('info', `Took back ${label}.`, undefined, { context: s.plies.map((p) => p.uci) })],
     }))
   }
 
@@ -456,7 +463,10 @@ export function useCoachGame(coachAI: boolean) {
           retryingPly: null,
           hintArrow: null,
           failed: null,
-          messages: [...s.messages, message('info', `Went forward to ${label}.`)],
+          messages: [
+            ...s.messages,
+            message('info', `Went forward to ${label}.`, undefined, { context: [...s.plies, ...step.plies].map((p) => p.uci) }),
+          ],
         },
         'user',
       ),
@@ -484,6 +494,7 @@ export function useCoachGame(coachAI: boolean) {
       explaining: true,
       hintLevel: level,
       speak: true,
+      context: s.plies.map((p) => p.uci),
     })
     update((s) => ({ ...s, hints: { at, used: level }, messages: [...s.messages, note] }))
     const moves = s.plies.map((p) => p.uci)
@@ -512,11 +523,13 @@ export function useCoachGame(coachAI: boolean) {
         history.push({ question: m.text, answer: reply.text })
       }
     })
-    const asked = message('question', question)
+    const context = s.plies.map((p) => p.uci)
+    const asked = message('question', question, undefined, { context })
     const answer = message('answer', '', undefined, {
       template: "Sorry, I couldn't answer that just now. Try asking again.",
       explaining: true,
       speak: true,
+      context,
     })
     update((s) => ({ ...s, messages: [...s.messages, asked, answer] }))
     const body = {

@@ -118,6 +118,41 @@ main {
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
 }
 
+.board-caption {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 90%;
+  background: rgba(20, 20, 20, 0.85);
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  text-align: center;
+  z-index: 5;
+  pointer-events: none;
+}
+
+/* A move mentioned in a coach message: point at it to see it on the board. */
+.move-ref {
+  display: inline;
+  font: inherit;
+  font-weight: 700;
+  color: #8cc8f0;
+  background: none;
+  border: none;
+  border-bottom: 1px dotted #8cc8f0;
+  border-radius: 0;
+  padding: 0;
+  cursor: pointer;
+}
+button.move-ref:hover:not(:disabled),
+button.move-ref:focus-visible {
+  background: rgba(74, 159, 216, 0.2);
+  outline: none;
+}
+
 .square-badge {
   position: absolute;
   top: 2px;

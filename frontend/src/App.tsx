@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react'
+import { Chess } from 'chess.js'
+import { useEffect, useMemo, useState } from 'react'
 import { api, type CoachConfig, type Eval, type Level, type VoiceOption } from './api'
 import { Board } from './components/Board'
 import { CoachPanel } from './components/CoachPanel'
 import { EvalBar } from './components/EvalBar'
 import { MoveList } from './components/MoveList'
 import { NewGame } from './components/NewGame'
+import type { MoveRef } from './moveRefs'
 import { useCoachGame, type CoachMode, type RetryMode } from './useCoachGame'
 import { canSpeak, setServerVoice, setVoiceName, speak, stopSpeaking } from './voice'
 
@@ -28,6 +30,15 @@ export default function App() {
   const [backendError, setBackendError] = useState<string | null>(null)
   const [showSetup, setShowSetup] = useState(false)
   const [flipped, setFlipped] = useState(false)
+  // A move from a coach message being shown on the board instead of the game.
+  const [preview, setPreview] = useState<MoveRef | null>(null)
+  const previewGame = useMemo(() => (preview ? new Chess(preview.fen) : null), [preview])
+  // Previews (and going back from one) snap instantly; real moves animate again.
+  const [instant, setInstant] = useState(false)
+  const showPreview = (move: MoveRef | null) => {
+    setInstant(true)
+    setPreview(move)
+  }
   const [voices, setVoices] = useState<VoiceOption[]>([])
   const [voice, setVoice] = useState<string | null>(null)
 
@@ -60,6 +71,8 @@ export default function App() {
       }
     }, () => {}) // without it, the built-in comments are used
   }, [])
+
+  useEffect(() => setInstant(false), [plies.length])
 
   // ← and → take back and go forward, unless you're typing a question.
   useEffect(() => {
@@ -97,20 +110,32 @@ export default function App() {
         <div className="board-area">
           <EvalBar evaluation={phase === 'setup' ? null : evaluation} orientation={orientation} />
           <Board
-            game={coach.game}
+            game={previewGame ?? coach.game}
             orientation={orientation}
-            interactive={!settingUp && phase === 'user' && coach.game.turn() === userChar}
+            interactive={!preview && !settingUp && phase === 'user' && coach.game.turn() === userChar}
             userColor={userChar}
-            lastMove={last ? { from: last.uci.slice(0, 2), to: last.uci.slice(2, 4) } : null}
+            lastMove={
+              preview
+                ? { from: preview.from, to: preview.to }
+                : last
+                  ? { from: last.uci.slice(0, 2), to: last.uci.slice(2, 4) }
+                  : null
+            }
             badge={
-              last?.grade && lastWasUser ? { square: last.uci.slice(2, 4), classification: last.grade.classification } : null
+              !preview && last?.grade && lastWasUser
+                ? { square: last.uci.slice(2, 4), classification: last.grade.classification }
+                : null
             }
             arrows={
-              coach.hintArrow
-                ? [{ startSquare: coach.hintArrow.from, endSquare: coach.hintArrow.to, color: 'rgba(129, 182, 76, 0.9)' }]
-                : []
+              preview
+                ? [{ startSquare: preview.from, endSquare: preview.to, color: 'rgba(74, 159, 216, 0.9)' }]
+                : coach.hintArrow
+                  ? [{ startSquare: coach.hintArrow.from, endSquare: coach.hintArrow.to, color: 'rgba(129, 182, 76, 0.9)' }]
+                  : []
             }
             onMove={actions.playMove}
+            caption={preview?.label}
+            animate={!instant}
           />
         </div>
         <aside className="side">
@@ -152,6 +177,7 @@ export default function App() {
                 hintsUsed={coach.hintsUsed}
                 onHint={actions.requestHint}
                 onAsk={actions.ask}
+                onPreview={showPreview}
               />
               <div className="controls">
                 <button onClick={actions.undo} disabled={!coach.canUndo} title="Take back your last move (←)">

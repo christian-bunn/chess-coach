@@ -14,6 +14,10 @@ interface BoardProps {
   badge: { square: string; classification: Classification } | null
   arrows: Arrow[]
   onMove: (uci: string) => void
+  /** Shown over the top of the board, e.g. what a previewed move is. */
+  caption?: string
+  /** Animate pieces to their new squares (off for instant previews). */
+  animate?: boolean
 }
 
 const LAST_MOVE = 'rgba(255, 255, 51, 0.42)'
@@ -22,7 +26,18 @@ const MOVE_DOT = 'radial-gradient(circle, rgba(0, 0, 0, 0.18) 21%, transparent 2
 const CAPTURE_RING = 'radial-gradient(circle, transparent 57%, rgba(0, 0, 0, 0.18) 59%)'
 const CHECK = 'radial-gradient(circle, rgba(255, 0, 0, 0.85) 0%, rgba(231, 0, 0, 0.5) 30%, transparent 75%)'
 
-export function Board({ game, orientation, interactive, userColor, lastMove, badge, arrows, onMove }: BoardProps) {
+export function Board({
+  game,
+  orientation,
+  interactive,
+  userColor,
+  lastMove,
+  badge,
+  arrows,
+  onMove,
+  caption,
+  animate = true,
+}: BoardProps) {
   const [selected, setSelected] = useState<Square | null>(null)
   const [promotion, setPromotion] = useState<{ from: Square; to: Square } | null>(null)
   const fen = game.fen()
@@ -74,6 +89,7 @@ export function Board({ game, orientation, interactive, userColor, lastMove, bad
           id: 'coach-board',
           position: fen,
           boardOrientation: orientation,
+          showAnimations: animate,
           allowDragging: interactive,
           arrows,
           darkSquareStyle: { backgroundColor: '#769656' },
@@ -114,6 +130,7 @@ export function Board({ game, orientation, interactive, userColor, lastMove, bad
           ),
         }}
       />
+      {caption && <div className="board-caption">{caption}</div>}
       {promotion && (
         <div className="promotion" role="dialog" aria-label="Choose a piece to promote to">
           <div className="promotion-choices">

@@ -1,6 +1,7 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CoachConfig } from '../api'
 import { GRADE_META } from '../grades'
+import { findMoveRefs, type MoveRef } from '../moveRefs'
 import { HINT_LEVELS, moveLabel, type CoachMessage, type Phase } from '../useCoachGame'
 
 interface CoachPanelProps {
@@ -18,6 +19,8 @@ interface CoachPanelProps {
   hintsUsed: number
   onHint: () => void
   onAsk: (question: string) => void
+  /** Show a move mentioned in a message on the board (null: back to the game). */
+  onPreview: (move: MoveRef | null) => void
 }
 
 const HINT_LABELS = ['Hint', 'Bigger hint', 'Show move']
@@ -40,6 +43,7 @@ export function CoachPanel({
   hintsUsed,
   onHint,
   onAsk,
+  onPreview,
 }: CoachPanelProps) {
   const [question, setQuestion] = useState('')
   const feed = useRef<HTMLDivElement>(null)
@@ -75,7 +79,7 @@ export function CoachPanel({
           }}
         >
           {messages.map((m) => (
-            <Message key={m.id} message={m} latest={m.id === latestId} />
+            <Message key={m.id} message={m} latest={m.id === latestId} onPreview={onPreview} />
           ))}
           {STATUS[phase] && <p className="coach-status">{STATUS[phase]}</p>}
         </div>
@@ -141,13 +145,41 @@ export function CoachPanel({
   )
 }
 
+/** Message text with the moves it mentions as links: pointing at one shows it on the board. */
+function MessageText({ text, context, onPreview }: { text: string; context?: string[]; onPreview: CoachPanelProps['onPreview'] }) {
+  const segments = useMemo(() => (context ? findMoveRefs(text, context) : [text]), [text, context])
+  return (
+    <>
+      {segments.map((segment, i) =>
+        typeof segment === 'string' ? (
+          segment
+        ) : (
+          <button
+            key={i}
+            type="button"
+            className="move-ref"
+            title={segment.label}
+            onMouseEnter={() => onPreview(segment)}
+            onMouseLeave={() => onPreview(null)}
+            onFocus={() => onPreview(segment)}
+            onBlur={() => onPreview(null)}
+            onClick={() => onPreview(segment)}
+          >
+            {segment.text}
+          </button>
+        ),
+      )}
+    </>
+  )
+}
+
 /** `latest`: the newest coach message, highlighted so it's easy to find again. */
-function Message({ message, latest }: { message: CoachMessage; latest: boolean }) {
+function Message({ message, latest, onPreview }: { message: CoachMessage; latest: boolean; onPreview: CoachPanelProps['onPreview'] }) {
   const grade = message.grade
   const body = (
     <p>
       {message.prefix}
-      {message.text}
+      <MessageText text={message.text} context={message.context} onPreview={onPreview} />
       {message.explaining && <span className="typing" aria-label="Coach is writing" />}
     </p>
   )
@@ -169,7 +201,9 @@ function Message({ message, latest }: { message: CoachMessage; latest: boolean }
   if (message.kind === 'question') {
     return (
       <div className="bubble question">
-        <p>{message.text}</p>
+        <p>
+          <MessageText text={message.text} context={message.context} onPreview={onPreview} />
+        </p>
       </div>
     )
   }

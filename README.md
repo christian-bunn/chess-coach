@@ -132,6 +132,14 @@ hints and answers, aloud.
 - **Settings:** set `COACH_VOICE` to a voice name to change the default, or to `off`. Without any voice
   models, Speak falls back to the browser's own voice where there is one.
 
+## Reading moves
+
+The coach writes moves in standard notation: **11.c3** means White's 11th move, a pawn to c3, and
+**12...Nxe4** is Black's 12th move, a knight capturing on e4. Every move in a coach message is a link. Point
+at it, or tap it, and the board shows the position at that point with an arrow and a caption in words
+("White's move 11: pawn from c2 to c3"). That works for lines that never happened in the game too, such as
+"after 10...Qxd1 11.Raxd1". The coach is also told to say in words what each move it mentions does.
+
 ## Take back and Forward
 
 **↶ Take back** (or the ← key) undoes your last move and the opponent's reply. **Forward ↷** (or →) puts
@@ -233,6 +241,7 @@ backend/app/
 frontend/src/
   useCoachGame.ts   Game state: turns, grading, retry / take-back flow, hints, questions, key moments
   voice.ts          Playing the coach's voice, with notation turned into words
+  moveRefs.ts       Finding the moves a coach message mentions, so they can be shown on the board
   components/       Board, EvalBar, CoachPanel, MoveList, NewGame
 ```
 
