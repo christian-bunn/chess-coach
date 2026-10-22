@@ -7,14 +7,20 @@ const PIECES: Record<string, string> = { K: 'king', Q: 'queen', R: 'rook', B: 'b
 // A move in algebraic notation, optionally with its move number: "12...Nxe4+", "3.d3", "O-O", "exd5", "a8=Q#".
 const MOVE = /\b(\d+\.(?:\.\.)?\s*)?(O-O-O|O-O|[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?)([+#])?/g
 
-/** Chess notation turned into words a speech engine reads naturally: "12...Nxe4+" -> "knight takes e4, check". */
+// Marks the end of a spoken move, so moves that follow each other ("10...Qxd1 11.Raxd1") get a pause between them.
+const END = '\u0001'
+
+/**
+ * Text as it should be spoken: chess notation turned into words ("12...Nxe4+" -> "knight takes e4, check"),
+ * a pause between consecutive moves, and brackets and slashes read the way a person would.
+ */
 export function speakable(text: string): string {
-  return text.replace(MOVE, (match, number: string | undefined, san: string, check: string | undefined) => {
+  const words = text.replace(MOVE, (match, number: string | undefined, san: string, check: string | undefined) => {
     // A bare square ("the pawn on d5") is already fine as it is.
     if (!number && !check && /^[a-h][1-8]$/.test(san)) return match
     let words: string
-    if (san === 'O-O') words = 'castles kingside'
-    else if (san === 'O-O-O') words = 'castles queenside'
+    if (san === 'O-O') words = 'castling kingside'
+    else if (san === 'O-O-O') words = 'castling queenside'
     else {
       const piece = PIECES[san[0]] ?? 'pawn'
       const [, square, promotion] = san.match(/([a-h][1-8])(?:=([QRBN]))?$/) ?? []
@@ -23,15 +29,31 @@ export function speakable(text: string): string {
     }
     if (check === '+') words += ', check'
     if (check === '#') words += ', checkmate'
-    return words
+    return words + END
   })
+  return words
+    .replace(new RegExp(`${END}\\s+(?=(?:pawn|knight|bishop|rook|queen|king|castling)\\b)`, 'g'), ', ')
+    .replaceAll(END, '')
+    .replace(/\s*[()[\]]\s*/g, ', ')
+    .replace(/\s*\/\s*/g, ' or ')
+    .replace(/\be\.g\.,?/gi, 'for example')
+    .replace(/\bi\.e\.,?/gi, 'that is')
+    .replace(/\s*,(\s*,)+/g, ',')
+    .replace(/,\s*([.!?])/g, '$1')
+    .replace(/\s{2,}/g, ' ')
 }
 
 let serverVoice = false
+let voiceName: string | null = null
 
 /** Tell the voice whether the backend can make speech (from /api/config). */
 export function setServerVoice(available: boolean) {
   serverVoice = available
+}
+
+/** Which of the backend's voices to use (null: its default). */
+export function setVoiceName(name: string | null) {
+  voiceName = name
 }
 
 function browserHasVoices(): boolean {
@@ -75,7 +97,7 @@ function fetchClip(text: string): Promise<string | null> {
   return fetch('/api/speech', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, voice: voiceName }),
   })
     .then((response) => (response.ok ? response.blob() : null))
     .then((blob) => (blob ? URL.createObjectURL(blob) : null))

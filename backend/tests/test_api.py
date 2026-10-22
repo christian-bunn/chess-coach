@@ -54,7 +54,7 @@ def test_hanging_the_queen(client):
     assert g["classification"] == "blunder"
     assert g["retry_suggested"]
     assert g["refutation"][0] == "Bxg4"
-    assert g["message"] == "Blunder! 2.Qg4 puts your queen on g4, where 2...Bxg4 takes it."
+    assert g["message"] == "Blunder! 2.Qg4 puts your queen on g4, and 2...Bxg4 takes it."
 
 
 def test_allowing_mate(client):
@@ -132,7 +132,7 @@ def test_explain_falls_back_to_the_template_without_claude(client):
     use_explainer(client, None)
     assert client.get("/api/config").json() == {"coach_ai": False, "model": None, "via": None, "voice": False}
     events = explain(client, ["e2e4", "d7d5", "d1g4"])
-    assert events == [{"type": "done", "text": "Blunder! 2.Qg4 puts your queen on g4, where 2...Bxg4 takes it.", "source": "template"}]
+    assert events == [{"type": "done", "text": "Blunder! 2.Qg4 puts your queen on g4, and 2...Bxg4 takes it.", "source": "template"}]
 
 
 def test_explain_streams_claudes_comment_from_the_fact_sheet(client):
@@ -164,7 +164,7 @@ def test_explain_falls_back_when_claude_fails(client):
 def test_explain_falls_back_on_unexpected_errors(client):
     use_explainer(client, FakeClient([text("half"), RuntimeError("bug")]))
     events = explain(client, ["e2e4", "d7d5", "d1g4"])
-    assert events[-1] == {"type": "done", "text": "Blunder! 2.Qg4 puts your queen on g4, where 2...Bxg4 takes it.", "source": "template"}
+    assert events[-1] == {"type": "done", "text": "Blunder! 2.Qg4 puts your queen on g4, and 2...Bxg4 takes it.", "source": "template"}
 
 
 def stream_events(client, path, payload):
@@ -217,8 +217,14 @@ def test_ask_checks_the_moves_in_the_question(client):
 
 class FakeSpeech:
     available = True
+    default = "en_US-ryan-high"
 
-    async def wav(self, text):
+    def voices(self):
+        return ["en_US-joe-medium", "en_US-ryan-high"]
+
+    async def wav(self, text, voice=None):
+        if voice not in (None, *self.voices()):
+            raise ValueError("Unknown voice")
         return b"RIFF" + text.encode()
 
 
@@ -236,5 +242,11 @@ def test_speech_returns_audio(client):
         assert response.headers["content-type"] == "audio/wav"
         assert response.content == b"RIFFKnight takes e4"
         assert client.get("/api/config").json()["voice"] is True
+        assert client.get("/api/voices").json() == {
+            "voices": [{"name": "en_US-joe-medium", "label": "Joe"}, {"name": "en_US-ryan-high", "label": "Ryan (high quality)"}],
+            "default": "en_US-ryan-high",
+        }
+        assert client.post("/api/speech", json={"text": "Hi", "voice": "en_US-joe-medium"}).status_code == 200
+        assert client.post("/api/speech", json={"text": "Hi", "voice": "en_US-nobody"}).status_code == 400
     finally:
         client.app.state.speech = real

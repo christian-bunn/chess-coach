@@ -79,6 +79,11 @@ export interface CoachConfig {
 }
 
 /** One line of a streamed coach reply (comment, hint or answer). */
+export interface VoiceOption {
+  name: string
+  label: string
+}
+
 export type CoachEvent =
   | { type: 'text'; text: string }
   /** Discard what has streamed so far (a fallback model took over, or Claude failed). */
@@ -139,6 +144,7 @@ type OnEvent = (event: CoachEvent) => void
 export const api = {
   config: () => request<CoachConfig>('/config'),
   levels: () => request<Level[]>('/levels'),
+  voices: () => request<{ voices: VoiceOption[]; default: string | null }>('/voices'),
   /** The coach's comment on the last move in `moves`. */
   explain: (body: ExplainRequest, onEvent: OnEvent, signal?: AbortSignal) => streamCoach('/explain', body, onEvent, signal),
   hint: (body: HintRequest, onEvent: OnEvent, signal?: AbortSignal) => streamCoach('/hint', body, onEvent, signal),

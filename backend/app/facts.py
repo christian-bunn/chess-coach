@@ -186,19 +186,24 @@ class Reason:
     other: str | None = None  # "ignored": the attacker; "defender": the piece that moved away
     amount: int = 0  # moves to mate, or points of material
     also: Reason | None = None  # a second problem with the same move (a missed mate that also loses material)
+    lead_in: str | None = None  # moves before the reply, e.g. a queen trade: "10...Qxd1 11.Raxd1"
+
+    def _then(self, verb: str) -> str:
+        """'3...Nxh5 wins it', or 'after 10...Qxd1 11.Raxd1, 11...Nxa4 wins it'."""
+        return (f"after {self.lead_in}, " if self.lead_in else "") + f"{self.reply} {verb} it"
 
     def sentence(self) -> str:
         points = f"about {self.amount} point{'s' if self.amount != 1 else ''} of material"
         return {
             "allows_mate": f"{self.move} allows the opponent to force checkmate in {self.amount}, starting with {self.reply}.",
-            "hung": f"{self.move} puts the student's {self.piece} on {self.square}, where {self.reply} takes it.",
+            "hung": f"{self.move} puts the student's {self.piece} on {self.square}, and {self._then('takes')}.",
             "ignored": (
                 f"The student's {self.piece} on {self.square} was already under attack from the {self.other} "
-                f"before {self.move}. {self.move} did nothing about that, so {self.reply} wins it."
+                f"before {self.move}. {self.move} did nothing about that, so {self._then('wins')}."
             ),
             "defender": (
                 f"{self.move} moves the student's {self.other} away from defending the {self.piece} on "
-                f"{self.square}, so {self.reply} wins it."
+                f"{self.square}, so {self._then('wins')}."
             ),
             "loses": f"After {self.move}, the opponent wins {points}, starting with {self.reply}.",
             "missed_mate": f"{self.move} misses a forced checkmate in {self.amount}.",
@@ -216,14 +221,14 @@ class Reason:
     def coach_text(self) -> str | None:
         """For the built-in comment, when there's a specific piece to talk about."""
         return {
-            "hung": f"{self.move} puts your {self.piece} on {self.square}, where {self.reply} takes it.",
+            "hung": f"{self.move} puts your {self.piece} on {self.square}, and {self._then('takes')}.",
             "ignored": (
                 f"Your {self.piece} on {self.square} was already under attack, and {self.move} didn't deal "
-                f"with it: {self.reply} wins it."
+                f"with it, so {self._then('wins')}."
             ),
             "defender": (
                 f"{self.move} moves your {self.other} away from guarding the {self.piece} on {self.square}, "
-                f"so {self.reply} wins it."
+                f"so {self._then('wins')}."
             ),
         }.get(self.kind)
 
@@ -272,21 +277,20 @@ def _material_loss(board: chess.Board, move: chess.Move, grade: MoveGrade, line:
     square = capture.to_square
     victim = b.piece_at(square)
     reply_san = numbered_san(b, capture)
-    if lead_in:
-        reply_san = f"{reply_san} (after {' '.join(lead_in)})"
+    lead = " ".join(lead_in) or None
     name, where = PIECE_NAMES[victim.piece_type], chess.square_name(square)
     # Has the piece stayed put since the student's move? Only then is it "the piece the move left there".
     unmoved = all(m.from_square != square for m in line[:i])
     if square == move.to_square and unmoved:
-        return Reason("hung", label, reply_san, name, where)
+        return Reason("hung", label, reply_san, name, where, lead_in=lead)
     was_attacked = unmoved and board.piece_at(square) == victim and board.is_attacked_by(not mover, square)
     if was_attacked and move.from_square in board.attackers(mover, square):
         defender = PIECE_NAMES[board.piece_type_at(move.from_square)]
-        return Reason("defender", label, reply_san, name, where, other=defender)
+        return Reason("defender", label, reply_san, name, where, other=defender, lead_in=lead)
     if was_attacked:
         attackers = sorted(board.attackers(not mover, square), key=lambda s: PIECE_VALUES.get(board.piece_type_at(s), 99))
         attacker = f"{PIECE_NAMES[board.piece_type_at(attackers[0])]} on {chess.square_name(attackers[0])}"
-        return Reason("ignored", label, reply_san, name, where, other=attacker)
+        return Reason("ignored", label, reply_san, name, where, other=attacker, lead_in=lead)
     return Reason("loses", label, reply_san, amount=-grade.material_change)
 
 

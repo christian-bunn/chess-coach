@@ -1,12 +1,24 @@
 import { useEffect, useState } from 'react'
-import { api, type CoachConfig, type Eval, type Level } from './api'
+import { api, type CoachConfig, type Eval, type Level, type VoiceOption } from './api'
 import { Board } from './components/Board'
 import { CoachPanel } from './components/CoachPanel'
 import { EvalBar } from './components/EvalBar'
 import { MoveList } from './components/MoveList'
 import { NewGame } from './components/NewGame'
 import { useCoachGame, type CoachMode, type RetryMode } from './useCoachGame'
-import { canSpeak, setServerVoice } from './voice'
+import { canSpeak, setServerVoice, setVoiceName, speak, stopSpeaking } from './voice'
+
+const VOICE_KEY = 'chess-coach.voice-name'
+const VOICE_SAMPLE =
+  "Nice. 12.Nd5 hits the queen on c7 and the bishop on e7 at the same time, so your opponent can't save both."
+
+function savedVoice(): string | null {
+  try {
+    return localStorage.getItem(VOICE_KEY)
+  } catch {
+    return null
+  }
+}
 
 export default function App() {
   const [config, setConfig] = useState<CoachConfig>({ coach_ai: false, model: null, via: null, voice: false })
@@ -16,12 +28,36 @@ export default function App() {
   const [backendError, setBackendError] = useState<string | null>(null)
   const [showSetup, setShowSetup] = useState(false)
   const [flipped, setFlipped] = useState(false)
+  const [voices, setVoices] = useState<VoiceOption[]>([])
+  const [voice, setVoice] = useState<string | null>(null)
+
+  const chooseVoice = (name: string, preview: boolean) => {
+    setVoice(name)
+    setVoiceName(name)
+    try {
+      localStorage.setItem(VOICE_KEY, name)
+    } catch {
+      // not remembered; fine
+    }
+    if (preview) {
+      stopSpeaking()
+      speak(VOICE_SAMPLE)
+    }
+  }
 
   useEffect(() => {
     api.levels().then(setLevels, (e: Error) => setBackendError(e.message))
     api.config().then((c) => {
       setServerVoice(c.voice)
       setConfig(c)
+      if (c.voice) {
+        api.voices().then((v) => {
+          setVoices(v.voices)
+          const saved = savedVoice()
+          const name = v.voices.some((x) => x.name === saved) ? saved : v.default
+          if (name) chooseVoice(name, false)
+        }, () => {})
+      }
     }, () => {}) // without it, the built-in comments are used
   }, [])
 
@@ -165,6 +201,23 @@ export default function App() {
                   </label>
                 )}
               </div>
+                {voices.length > 0 && (
+                  <div className="setting">
+                    <label>
+                      Voice
+                      <select value={voice ?? ''} onChange={(e) => chooseVoice(e.target.value, true)}>
+                        {voices.map((v) => (
+                          <option key={v.name} value={v.name}>
+                            {v.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button type="button" onClick={() => voice && chooseVoice(voice, true)} title="Hear this voice">
+                      ▶ Test
+                    </button>
+                  </div>
+                )}
                 <p className="coach-source">
                   {config.coach_ai && config.via === 'claude-code' ? (
                     <>Comments by Claude ({config.model}) through Claude Code, on your Claude plan.</>

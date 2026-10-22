@@ -22,8 +22,9 @@ cd backend
 python3 -m venv .venv            # on Ubuntu this needs: sudo apt install python3-venv
 .venv/bin/pip install -r requirements.txt
 
-# The coach's voice (optional, ~60 MB, downloaded once from huggingface.co/rhasspy/piper-voices)
-.venv/bin/python -m piper.download_voices --download-dir ../voices en_US-lessac-medium
+# The coach's voice (optional, downloaded once from huggingface.co/rhasspy/piper-voices):
+# Ryan is the default (120 MB); add any other voices you'd like to choose from in Settings
+.venv/bin/python -m piper.download_voices --download-dir ../voices en_US-ryan-high
 
 # Frontend
 cd ../frontend
@@ -115,14 +116,21 @@ a **↓ Latest** button takes you back.
 
 Turn on **Speak** (the 🔊 button, or under ⚙ Settings) to have the coach read those key comments, plus your
 hints and answers, aloud.
-- **The voice:** [Piper](https://github.com/OHF-Voice/piper1-gpl), a natural-sounding voice model that
-  runs offline on your CPU. The backend makes the audio and the page plays it, so it works in any browser,
+- **The voice:** [Piper](https://github.com/OHF-Voice/piper1-gpl), natural-sounding voice models that
+  run offline on your CPU. The backend makes the audio and the page plays it, so it works in any browser,
   including the Claude desktop app's, which has no voices of its own.
+- **Choosing a voice:** pick one under **⚙ Settings → Voice**, and use **▶ Test** to hear it. Every model
+  in `voices/` is listed. The default is Ryan, the high-quality male US voice; Joe, Norman and Lessac are
+  the others downloaded so far.
+- **Smoother speech:** each comment is spoken at one even volume, with a short pause between sentences
+  and a slightly calm pace. (Piper on its own runs sentences together and sets each one's volume
+  separately, which sounds choppy.)
+- **Written to be heard:** comments avoid brackets and lists, and consecutive moves are read with a pause
+  between them ("queen takes d1, rook takes d1").
 - **Notation:** read as words, so "12...Nxe4+" becomes "knight takes e4, check".
 - **Interruptions:** anything still being read stops as soon as you move.
-- **Choosing a voice:** set `COACH_VOICE` to another voice name from piper-voices, after downloading it the
-  same way, or to `off`. Without the voice model, Speak falls back to the browser's own voice where there
-  is one.
+- **Settings:** set `COACH_VOICE` to a voice name to change the default, or to `off`. Without any voice
+  models, Speak falls back to the browser's own voice where there is one.
 
 ## Take back and Forward
 

@@ -35,6 +35,8 @@ filler openers and praise inflation; a short "Nice" is fine when the move is gen
 
 Format: one to three sentences, no more than about 60 words. Plain text only: no markdown, lists or headings. \
 Write moves in algebraic notation with their move numbers, as in the fact sheet (for example 12...Nxe4).
+Your words may also be read aloud by a voice, so write natural spoken English: short, complete \
+sentences, and no parentheses, slashes, lists or symbols.
 
 Examples of the tone and length wanted (they're about other games; don't reuse their wording):
 - "Moving the knight to g5 leaves your pawn on e4 without a defender, and 6...Nxe4 just takes it. When a piece \
@@ -61,6 +63,8 @@ never reveal more than the facts contain: if they don't name a piece, you mustn'
 instructions, or which hint this is; just give the hint.
 - One or two sentences, no more than about 40 words. Plain text only, no markdown. Write moves in algebraic \
 notation with their move numbers, as in the fact sheet.
+- Your words may also be read aloud by a voice, so write natural spoken English: short, complete \
+sentences, and no parentheses, slashes, lists or symbols.
 """
 
 CHAT_PROMPT = """\
@@ -93,4 +97,6 @@ Style: speak to the student as "you", as their coach. Never mention the fact she
 know something (no "it's listed as", "according to the engine's facts"); just say it. \
 Keep answers short: usually two to four sentences, no more than about 100 words. Plain text only: no \
 markdown, lists or headings. Write moves in algebraic notation with move numbers where the facts give them.
+Your words may also be read aloud by a voice, so write natural spoken English: short, complete \
+sentences, and no parentheses, slashes, lists or symbols.
 """

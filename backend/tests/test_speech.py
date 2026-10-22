@@ -8,22 +8,40 @@ from pathlib import Path
 import pytest
 
 from app.config import PROJECT_ROOT
-from app.speech import Speech
+from app.speech import PREFERRED_VOICE, SENTENCE_PAUSE, Speech, voice_label
 
-REAL_VOICE = PROJECT_ROOT / "voices" / "en_US-lessac-medium.onnx"
+VOICES = PROJECT_ROOT / "voices"
+INSTALLED = sorted(p.stem for p in VOICES.glob("*.onnx")) if VOICES.is_dir() else []
 
 
-def test_no_model_means_no_voice(tmp_path):
-    for path in (None, tmp_path / "missing.onnx"):
-        speech = Speech(path)
+def test_no_voices_means_no_speech(tmp_path):
+    for folder in (None, tmp_path):
+        speech = Speech(folder)
         speech.start()
-        assert not speech.available
+        assert not speech.available and speech.voices() == []
 
 
-@pytest.mark.skipif(not REAL_VOICE.is_file(), reason="Piper voice not downloaded")
-def test_real_voice_speaks():
-    speech = Speech(REAL_VOICE)
-    speech.start()
-    audio = asyncio.run(speech.wav("Knight takes e4, check."))
+def test_labels():
+    assert voice_label("en_US-ryan-high") == "Ryan (high quality)"
+    assert voice_label("en_US-joe-medium") == "Joe"
+    assert voice_label("en_GB-northern_english_male-medium") == "Northern English Male (British)"
+
+
+def seconds(audio: bytes) -> float:
     with wave.open(io.BytesIO(audio)) as wav:
-        assert wav.getnframes() / wav.getframerate() > 0.5  # at least half a second of speech
+        return wav.getnframes() / wav.getframerate()
+
+
+@pytest.mark.skipif(not INSTALLED, reason="no Piper voices downloaded")
+def test_real_voices():
+    speech = Speech(VOICES)
+    speech.start()
+    if PREFERRED_VOICE in INSTALLED:
+        assert speech.default == PREFERRED_VOICE
+    one = asyncio.run(speech.wav("Knight takes e4, check."))
+    two = asyncio.run(speech.wav("Knight takes e4, check. Now look at your queen."))
+    assert seconds(one) > 0.5
+    # The second sentence comes after a pause, not run straight on.
+    assert seconds(two) > seconds(one) + SENTENCE_PAUSE
+    with pytest.raises(ValueError):
+        asyncio.run(speech.wav("Hello", "en_US-nobody-medium"))

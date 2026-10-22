@@ -69,7 +69,8 @@ class Settings:
     coach_ai: str
     coach_model: str | None  # None: the default for whichever of the above is used
     coach_effort: str
-    voice_path: Path | None  # Piper voice model for the coach's speech; None turns speech off
+    voices_dir: Path | None  # Piper voice models for the coach's speech; None turns speech off
+    voice: str | None  # the default voice's name; None picks one
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -85,17 +86,7 @@ class Settings:
             coach_ai=os.environ.get("COACH_AI", "auto"),
             coach_model=os.environ.get("COACH_MODEL") or None,
             coach_effort=os.environ.get("COACH_EFFORT", "low"),
-            voice_path=_voice_path(),
+            # $COACH_VOICE: "off", or the name of the default voice (one of the models in ./voices).
+            voices_dir=None if os.environ.get("COACH_VOICE") == "off" else PROJECT_ROOT / "voices",
+            voice=os.environ.get("COACH_VOICE") or None,
         )
-
-
-DEFAULT_VOICE = "en_US-lessac-medium"
-
-
-def _voice_path() -> Path | None:
-    """$COACH_VOICE: "off", a path to a Piper .onnx model, or a voice name in ./voices."""
-    setting = os.environ.get("COACH_VOICE", DEFAULT_VOICE)
-    if setting == "off":
-        return None
-    path = Path(setting)
-    return path if path.suffix == ".onnx" else PROJECT_ROOT / "voices" / f"{setting}.onnx"

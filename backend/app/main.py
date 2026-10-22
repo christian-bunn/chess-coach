@@ -32,7 +32,7 @@ from .facts import fact_sheet
 from .grading import Eval, MoveGrade, grade_move, san_line
 from .levels import DEFAULT_LEVEL, LEVELS, LEVELS_BY_ID
 from .prompts import CHAT_PROMPT, COMMENT_PROMPT, HINT_PROMPT
-from .speech import MAX_TEXT, Speech
+from .speech import MAX_TEXT, Speech, voice_label
 
 log = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ async def lifespan(app: FastAPI):
     await engines.start()
     app.state.engines = engines
     explainer = await make_explainer(settings)
-    speech = Speech(settings.voice_path)
+    speech = Speech(settings.voices_dir, settings.voice)
     speech.start()
     app.state.speech = speech
     app.state.explainer = explainer
@@ -97,6 +97,7 @@ class HintIn(MovesIn):
 
 class SpeechIn(BaseModel):
     text: str = Field(min_length=1, max_length=MAX_TEXT)
+    voice: str | None = None  # one of /api/voices; default: the server's default voice
 
 
 class Exchange(BaseModel):
@@ -182,7 +183,20 @@ async def speech(body: SpeechIn, request: Request) -> Response:
     voice: Speech = request.app.state.speech
     if not voice.available:
         raise HTTPException(503, "The coach's voice isn't set up (see README: Speak)")
-    return Response(await voice.wav(body.text), media_type="audio/wav")
+    try:
+        audio = await voice.wav(body.text, body.voice)
+    except ValueError as error:
+        raise HTTPException(400, str(error))
+    return Response(audio, media_type="audio/wav")
+
+
+@app.get("/api/voices")
+async def voices(request: Request) -> dict:
+    """The installed voices the student can choose from, and the default one."""
+    voice: Speech = request.app.state.speech
+    if not voice.available:
+        return {"voices": [], "default": None}
+    return {"voices": [{"name": n, "label": voice_label(n)} for n in voice.voices()], "default": voice.default}
 
 
 @app.get("/api/levels")

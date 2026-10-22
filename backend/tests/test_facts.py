@@ -107,13 +107,13 @@ class TestWhyBad:
             "MAIN POINT: The student's queen on h5 was already under attack from the knight on f6 before 3.d3. "
             "3.d3 did nothing about that, so 3...Nxh5 wins it."
         )
-        assert r.coach_text() == "Your queen on h5 was already under attack, and 3.d3 didn't deal with it: 3...Nxh5 wins it."
+        assert r.coach_text() == "Your queen on h5 was already under attack, and 3.d3 didn't deal with it, so 3...Nxh5 wins it."
 
     def test_moving_onto_an_attacked_square(self):
         board = board_after("e4", "d5")
         r = self.reason(board, "Qg4", fake_analysis(board, ("exd5", Cp(50))), Cp(700), "Bxg4")
         assert r.kind == "hung"
-        assert r.coach_text() == "2.Qg4 puts your queen on g4, where 2...Bxg4 takes it."
+        assert r.coach_text() == "2.Qg4 puts your queen on g4, and 2...Bxg4 takes it."
 
     def test_moving_a_defender_away(self):
         board = chess.Board("3r2k1/5ppp/8/3P4/8/2N5/5PPP/6K1 w - - 0 1")  # the knight guards d5
@@ -143,8 +143,8 @@ class TestWhyBad:
         r = why_bad(board, move, g, tuple(pv))
         assert r.kind == "ignored" and r.piece == "bishop" and r.square == "a4"
         assert r.coach_text() == (
-            "Your bishop on a4 was already under attack, and 10.O-O didn't deal with it: "
-            "11...Nxa4 (after 10...Qxd1 11.Raxd1) wins it."
+            "Your bishop on a4 was already under attack, and 10.O-O didn't deal with it, "
+            "so after 10...Qxd1 11.Raxd1, 11...Nxa4 wins it."
         )
 
     def test_good_moves_have_no_reason(self):
