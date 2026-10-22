@@ -1,7 +1,8 @@
 import { Chess } from 'chess.js'
 import { useMemo, useRef, useState } from 'react'
-import { api, type CoachEvent, type Eval, type Level, type MoveGrade } from './api'
+import { api, type Classification, type CoachEvent, type Eval, type Level, type MoveGrade } from './api'
 import { GOOD_GRADES } from './grades'
+import { speak, stopSpeaking } from './voice'
 
 export type Side = 'white' | 'black'
 /**
@@ -16,6 +17,8 @@ export type Side = 'white' | 'black'
 export type Phase = 'setup' | 'user' | 'grading' | 'decision' | 'bot' | 'over' | 'error'
 /** Which of the user's moves make the coach pause and offer a take-back. */
 export type RetryMode = 'mistakes' | 'blunders' | 'off'
+/** 'key': the coach only comments at key moments (see isKeyMove). 'all': it comments on every move. */
+export type CoachMode = 'key' | 'all'
 
 export interface Ply {
   uci: string
@@ -36,6 +39,8 @@ export interface CoachMessage {
   explaining?: boolean
   /** For hints: which level (1-3). */
   hintLevel?: number
+  /** Read aloud (when the voice is on) once its text is final. */
+  speak?: boolean
   grade?: MoveGrade
 }
 
@@ -56,18 +61,35 @@ interface GameState {
   hints: { at: number; used: number }
   failed: 'grade' | 'bot' | null
   retryMode: RetryMode
+  coachMode: CoachMode
+  voice: boolean
 }
 
-const RETRY_MODE_KEY = 'chess-coach.retry-mode'
+const SETTING_KEYS = { retryMode: 'chess-coach.retry-mode', coachMode: 'chess-coach.coach-mode', voice: 'chess-coach.voice' }
 
-function loadRetryMode(): RetryMode {
+function loadSetting<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   try {
-    const saved = localStorage.getItem(RETRY_MODE_KEY)
-    if (saved === 'mistakes' || saved === 'blunders' || saved === 'off') return saved
+    const saved = localStorage.getItem(key)
+    if (saved !== null && (allowed as readonly string[]).includes(saved)) return saved as T
   } catch {
     // storage unavailable: fall through to the default
   }
-  return 'mistakes'
+  return fallback
+}
+
+function saveSetting(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // not persisted; fine
+  }
+}
+
+// Moves of the student's that the coach always comments on (and reads aloud), even in 'key' mode.
+const KEY_GRADES: ReadonlySet<Classification> = new Set(['great', 'mistake', 'miss', 'blunder'])
+
+function isKeyMove(grade: MoveGrade, foundOnRetry: boolean): boolean {
+  return foundOnRetry || KEY_GRADES.has(grade.classification) || grade.delivers_mate || grade.missed_mate_in !== null
 }
 
 let nextMessageId = 1
@@ -75,7 +97,7 @@ function message(
   kind: CoachMessage['kind'],
   text: string,
   grade?: MoveGrade,
-  extra?: Partial<Pick<CoachMessage, 'prefix' | 'explaining' | 'template' | 'hintLevel'>>,
+  extra?: Partial<Pick<CoachMessage, 'prefix' | 'explaining' | 'template' | 'hintLevel' | 'speak'>>,
 ): CoachMessage {
   return { id: nextMessageId++, kind, text, template: text, grade, ...extra }
 }
@@ -135,6 +157,8 @@ const INITIAL: GameState = {
   hints: { at: 0, used: 0 },
   failed: null,
   retryMode: 'mistakes',
+  coachMode: 'key',
+  voice: false,
 }
 
 export const HINT_LEVELS = 3
@@ -143,7 +167,12 @@ const ASK_HISTORY = 4
 
 /** `coachAI`: whether the backend has Claude available to write the comments. */
 export function useCoachGame(coachAI: boolean) {
-  const [state, setState] = useState<GameState>(() => ({ ...INITIAL, retryMode: loadRetryMode() }))
+  const [state, setState] = useState<GameState>(() => ({
+    ...INITIAL,
+    retryMode: loadSetting(SETTING_KEYS.retryMode, ['mistakes', 'blunders', 'off'], 'mistakes'),
+    coachMode: loadSetting(SETTING_KEYS.coachMode, ['key', 'all'], 'key'),
+    voice: loadSetting(SETTING_KEYS.voice, ['on', 'off'], 'off') === 'on',
+  }))
   // Async handlers read and write through this ref so they never act on a stale snapshot.
   const stateRef = useRef(state)
   const update = (fn: (s: GameState) => GameState) => {
@@ -163,6 +192,12 @@ export function useCoachGame(coachAI: boolean) {
   const explanations = useRef(new AbortController())
   const coachAIRef = useRef(coachAI)
   coachAIRef.current = coachAI
+
+  /** Read message `id` aloud if it's meant to be and the voice is on. */
+  const announce = (id: number) => {
+    const m = stateRef.current.messages.find((m) => m.id === id)
+    if (m?.speak && stateRef.current.voice) speak((m.prefix ?? '') + m.text)
+  }
 
   const editMessage = (id: number, fn: (m: CoachMessage) => CoachMessage | null) =>
     update((s) => ({ ...s, messages: s.messages.flatMap((m) => (m.id === id ? (fn(m) ?? []) : [m])) }))
@@ -185,6 +220,7 @@ export function useCoachGame(coachAI: boolean) {
         const final = text || m.template
         return final ? { ...m, text: final, explaining: false } : null
       })
+      announce(id)
     }
     try {
       await run((event) => {
@@ -228,6 +264,7 @@ export function useCoachGame(coachAI: boolean) {
   const finishTurn = (s: GameState, next: Phase): GameState => {
     const over = gameOverText(buildGame(s.plies), s.userColor)
     if (!over) return { ...s, phase: next }
+    if (s.voice) speak(over)
     return { ...s, phase: 'over', messages: [...s.messages, message('over', over)] }
   }
 
@@ -238,9 +275,12 @@ export function useCoachGame(coachAI: boolean) {
     try {
       const grade = await api.botMove(plies.map((p) => p.uci), level?.id ?? 'casual', signal)
       if (signal.aborted) return
-      // Without Claude, the opponent's moves only get a comment when there's something to punish.
-      const explain = coachAIRef.current
-      const note = explain || grade.message ? message('opponent', grade.message ?? '', grade, { explaining: explain }) : null
+      // The server only writes a note for opponent moves that matter: a blunder to punish or a threat
+      // to watch out for. In 'key' mode those are the only ones the coach mentions.
+      const notable = !!grade.message
+      const show = notable || (stateRef.current.coachMode === 'all' && coachAIRef.current)
+      const explain = show && coachAIRef.current
+      const note = show ? message('opponent', grade.message ?? '', grade, { explaining: explain, speak: notable }) : null
       update((s) =>
         finishTurn(
           {
@@ -253,6 +293,7 @@ export function useCoachGame(coachAI: boolean) {
         ),
       )
       if (note && explain) void explainMove(note.id, [...plies.map((p) => p.uci), grade.uci], true)
+      else if (note) announce(note.id)
     } catch (error) {
       if (!signal.aborted) fail(error, 'bot')
     }
@@ -270,25 +311,32 @@ export function useCoachGame(coachAI: boolean) {
     try {
       const grade = await api.grade(plies.map((p) => p.uci), signal)
       if (signal.aborted) return
-      const { retryingPly, retryMode } = stateRef.current
+      const { retryingPly, retryMode, coachMode } = stateRef.current
       const found = retryingPly === grade.ply && GOOD_GRADES.has(grade.classification)
       const offerRetry = wantsRetry(grade, retryMode)
-      const explain = coachAIRef.current
-      const note = message('grade', grade.message ?? '', grade, {
-        prefix: found ? 'You found it! ' : undefined,
-        explaining: explain,
-      })
+      const key = isKeyMove(grade, found)
+      // In 'key' mode, routine moves get just their badge, and inaccuracies a short built-in note.
+      const show = coachMode === 'all' || key || grade.classification === 'inaccuracy'
+      const explain = show && coachAIRef.current && (coachMode === 'all' || key)
+      const note = show
+        ? message('grade', grade.message ?? '', grade, {
+            prefix: found ? 'You found it! ' : undefined,
+            explaining: explain,
+            speak: key,
+          })
+        : null
       update((s) => ({
         ...s,
         plies: s.plies.map((p, i) => (i === grade.ply - 1 ? { ...p, grade } : p)),
         evals: [...s.evals.slice(0, grade.ply), grade.eval_after],
-        messages: [...s.messages, note],
+        messages: note ? [...s.messages, note] : s.messages,
         retryingPly: null,
         phase: offerRetry ? 'decision' : s.phase,
         pendingRetry: offerRetry ? grade : null,
       }))
       // While a retry is on offer, Claude isn't told the best move, so it can't give the answer away.
-      if (explain) void explainMove(note.id, plies.map((p) => p.uci), !offerRetry)
+      if (note && explain) void explainMove(note.id, plies.map((p) => p.uci), !offerRetry)
+      else if (note) announce(note.id)
       if (!offerRetry) continueGame()
     } catch (error) {
       if (!signal.aborted) fail(error, 'grade')
@@ -297,15 +345,20 @@ export function useCoachGame(coachAI: boolean) {
 
   const newGame = (color: Side | 'random', level: Level) => {
     cancelPending()
+    stopSpeaking()
     explanations.current.abort()
     explanations.current = new AbortController()
     const userColor: Side = color === 'random' ? (Math.random() < 0.5 ? 'white' : 'black') : color
     const intro =
       `You're playing ${userColor} against ${level.name} (about ${level.elo}). ` +
-      "I'll grade every move you make, and if you slip up I'll give you the chance to try again."
+      (stateRef.current.coachMode === 'key'
+        ? "Every move gets a grade badge, and I'll speak up at the moments that matter. If you slip up, you can try again."
+        : "I'll comment on every move, and if you slip up I'll give you the chance to try again.")
     update((s) => ({
       ...INITIAL,
       retryMode: s.retryMode,
+      coachMode: s.coachMode,
+      voice: s.voice,
       userColor,
       level,
       phase: userColor === 'white' ? 'user' : 'bot',
@@ -332,6 +385,7 @@ export function useCoachGame(coachAI: boolean) {
     } catch {
       return // illegal
     }
+    stopSpeaking() // the student has moved on
     update((s) => ({ ...s, plies: [...s.plies, { uci, san, grade: null }], hintArrow: null }))
     void gradeLastMove()
   }
@@ -342,6 +396,7 @@ export function useCoachGame(coachAI: boolean) {
     if (stateRef.current.phase !== 'decision' || !grade) return
     cancelPending()
     const text = reveal ? `The best move was ${grade.best_san}. Go ahead and play it.` : retryHint(grade)
+    const note = message('info', text, undefined, { speak: true })
     update((s) => ({
       ...s,
       plies: s.plies.slice(0, grade.ply - 1),
@@ -351,8 +406,9 @@ export function useCoachGame(coachAI: boolean) {
       retryingPly: reveal ? null : grade.ply,
       hintArrow:
         reveal && grade.best_move ? { from: grade.best_move.slice(0, 2), to: grade.best_move.slice(2, 4) } : null,
-      messages: [...s.messages, message('info', text)],
+      messages: [...s.messages, note],
     }))
+    announce(note.id)
   }
 
   /** Take back the user's last move (and the opponent's reply, if it has been played). */
@@ -392,6 +448,7 @@ export function useCoachGame(coachAI: boolean) {
       template: "I couldn't come up with a hint just now.",
       explaining: true,
       hintLevel: level,
+      speak: true,
     })
     update((s) => ({ ...s, hints: { at, used: level }, messages: [...s.messages, note] }))
     const moves = s.plies.map((p) => p.uci)
@@ -424,6 +481,7 @@ export function useCoachGame(coachAI: boolean) {
     const answer = message('answer', '', undefined, {
       template: "Sorry, I couldn't answer that just now. Try asking again.",
       explaining: true,
+      speak: true,
     })
     update((s) => ({ ...s, messages: [...s.messages, asked, answer] }))
     const body = {
@@ -438,11 +496,18 @@ export function useCoachGame(coachAI: boolean) {
 
   const setRetryMode = (retryMode: RetryMode) => {
     update((s) => ({ ...s, retryMode }))
-    try {
-      localStorage.setItem(RETRY_MODE_KEY, retryMode)
-    } catch {
-      // not persisted; fine
-    }
+    saveSetting(SETTING_KEYS.retryMode, retryMode)
+  }
+
+  const setCoachMode = (coachMode: CoachMode) => {
+    update((s) => ({ ...s, coachMode }))
+    saveSetting(SETTING_KEYS.coachMode, coachMode)
+  }
+
+  const setVoice = (voice: boolean) => {
+    if (!voice) stopSpeaking()
+    update((s) => ({ ...s, voice }))
+    saveSetting(SETTING_KEYS.voice, voice ? 'on' : 'off')
   }
 
   const game = useMemo(() => buildGame(state.plies), [state.plies])
@@ -456,6 +521,9 @@ export function useCoachGame(coachAI: boolean) {
     canUndo,
     hintsUsed,
     canHint,
-    actions: { newGame, playMove, tryAgain, continueGame, undo, retryFailed, setRetryMode, requestHint, ask },
+    actions: {
+      newGame, playMove, tryAgain, continueGame, undo, retryFailed, requestHint, ask,
+      setRetryMode, setCoachMode, setVoice,
+    },
   }
 }

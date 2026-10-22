@@ -21,7 +21,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from .coach import describe_opponent_move, describe_user_move
+from .coach import describe_opponent_move, describe_user_move, threat_warning
 from .advice import HINT_LEVELS, Hypothetical, asks_for_a_move, hint, mentioned_moves, position_facts
 from .claude_code import ClaudeCodeExplainer
 from .config import Settings, anthropic_credentials_present
@@ -209,7 +209,9 @@ async def bot_move(body: BotMoveIn, request: Request) -> MoveGrade:
     # The analysis of the current position is usually cached already; if not, run it alongside.
     move, _ = await asyncio.gather(engines.play(board, level), engines.analyse(board))
     result = await _grade(engines, board, move)
-    result.message = describe_opponent_move(result)
+    after_board = board.copy()
+    after_board.push(move)
+    result.message = describe_opponent_move(result, threat_warning(after_board, await engines.threat(after_board)))
     return result
 
 

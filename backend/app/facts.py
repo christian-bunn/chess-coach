@@ -10,11 +10,13 @@ than marked secret.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import chess
 import chess.engine
 
 from .engine import Analysis, Line
-from .grading import PIECE_VALUES, Eval, MoveGrade, material_change, numbered_san, win_percent
+from .grading import MATERIAL_HORIZON, PIECE_VALUES, Eval, MoveGrade, material_change, numbered_san, win_percent
 
 PIECE_NAMES = {
     chess.PAWN: "pawn", chess.KNIGHT: "knight", chess.BISHOP: "bishop",
@@ -164,6 +166,116 @@ def describe_threat(board_after: chess.Board, threat: Line | None) -> str | None
     )
 
 
+BAD_MOVES = ("inaccuracy", "mistake", "miss", "blunder")
+
+
+@dataclass(frozen=True)
+class Reason:
+    """Why a move went wrong, worked out from the engine's line instead of left for Claude to infer.
+
+    kind: "allows_mate", "hung" (the opponent can take the piece that just moved), "ignored" (a piece
+    was already under attack and the move did nothing about it), "defender" (the move took away a
+    piece's defender), "loses" (material goes some other way), "missed_mate", "missed_win" or "worse".
+    """
+
+    kind: str
+    move: str  # numbered SAN of the move, e.g. "3.d3"
+    reply: str | None = None  # numbered SAN of the opponent's key reply, e.g. "3...Nxh5"
+    piece: str | None = None  # the piece that's lost, e.g. "queen"
+    square: str | None = None
+    other: str | None = None  # "ignored": the attacker; "defender": the piece that moved away
+    amount: int = 0  # moves to mate, or points of material
+    also: Reason | None = None  # a second problem with the same move (a missed mate that also loses material)
+
+    def sentence(self) -> str:
+        points = f"about {self.amount} point{'s' if self.amount != 1 else ''} of material"
+        return {
+            "allows_mate": f"{self.move} allows the opponent to force checkmate in {self.amount}, starting with {self.reply}.",
+            "hung": f"{self.move} puts the student's {self.piece} on {self.square}, where {self.reply} takes it.",
+            "ignored": (
+                f"The student's {self.piece} on {self.square} was already under attack from the {self.other} "
+                f"before {self.move}. {self.move} did nothing about that, so {self.reply} wins it."
+            ),
+            "defender": (
+                f"{self.move} moves the student's {self.other} away from defending the {self.piece} on "
+                f"{self.square}, so {self.reply} wins it."
+            ),
+            "loses": f"After {self.move}, the opponent wins {points}, starting with {self.reply}.",
+            "missed_mate": f"{self.move} misses a forced checkmate in {self.amount}.",
+            "missed_win": (
+                f"{self.move} misses a chance to win {points}." if self.amount
+                else f"{self.move} misses a much stronger move that would have given the student a winning position."
+            ),
+            "worse": f"{self.move} lets the opponent take over the better position with {self.reply}.",
+        }[self.kind]
+
+    def facts_text(self) -> str:
+        """For Claude's fact sheet."""
+        return "MAIN POINT: " + self.sentence() + (f" On top of that: {self.also.sentence()}" if self.also else "")
+
+    def coach_text(self) -> str | None:
+        """For the built-in comment, when there's a specific piece to talk about."""
+        return {
+            "hung": f"{self.move} puts your {self.piece} on {self.square}, where {self.reply} takes it.",
+            "ignored": (
+                f"Your {self.piece} on {self.square} was already under attack, and {self.move} didn't deal "
+                f"with it: {self.reply} wins it."
+            ),
+            "defender": (
+                f"{self.move} moves your {self.other} away from guarding the {self.piece} on {self.square}, "
+                f"so {self.reply} wins it."
+            ),
+        }.get(self.kind)
+
+
+def _material_loss(board: chess.Board, move: chess.Move, grade: MoveGrade, line: tuple[chess.Move, ...]) -> Reason | None:
+    """How the move loses material, judged by the opponent's immediate reply."""
+    if grade.material_change > -1 or not line:
+        return None
+    mover = board.turn
+    after_board = board.copy(stack=False)
+    after_board.push(move)
+    label = numbered_san(board, move)
+    reply, reply_san = line[0], numbered_san(after_board, line[0])
+    if after_board.is_capture(reply) and not after_board.is_en_passant(reply):
+        square = reply.to_square
+        victim = after_board.piece_at(square)
+        name, where = PIECE_NAMES[victim.piece_type], chess.square_name(square)
+        if square == move.to_square:
+            return Reason("hung", label, reply_san, name, where)
+        was_attacked = board.piece_at(square) == victim and board.is_attacked_by(not mover, square)
+        if was_attacked and move.from_square in board.attackers(mover, square):
+            defender = PIECE_NAMES[board.piece_type_at(move.from_square)]
+            return Reason("defender", label, reply_san, name, where, other=defender)
+        if was_attacked:
+            attackers = sorted(board.attackers(not mover, square), key=lambda s: PIECE_VALUES.get(board.piece_type_at(s), 99))
+            attacker = f"{PIECE_NAMES[board.piece_type_at(attackers[0])]} on {chess.square_name(attackers[0])}"
+            return Reason("ignored", label, reply_san, name, where, other=attacker)
+    return Reason("loses", label, reply_san, amount=-grade.material_change)
+
+
+def why_bad(board: chess.Board, move: chess.Move, grade: MoveGrade, line: tuple[chess.Move, ...]) -> Reason | None:
+    """The reason the move on `board` is an inaccuracy, mistake, miss or blunder (None for other moves).
+    `line` is the opponent's best continuation after it."""
+    if grade.classification not in BAD_MOVES:
+        return None
+    after_board = board.copy(stack=False)
+    after_board.push(move)
+    label = numbered_san(board, move)
+    reply = numbered_san(after_board, line[0]) if line else None
+
+    if grade.allows_mate_in:
+        return Reason("allows_mate", label, reply, amount=grade.allows_mate_in)
+    loss = _material_loss(board, move, grade, line)
+    if grade.missed_mate_in:
+        return Reason("missed_mate", label, amount=grade.missed_mate_in, also=loss)
+    if loss is not None:
+        return loss
+    if grade.classification == "miss":
+        return Reason("missed_win", label, amount=max(0, grade.best_material_change))
+    return Reason("worse", label, reply)
+
+
 def fact_sheet(
     board: chess.Board,
     move: chess.Move,
@@ -190,6 +302,11 @@ def fact_sheet(
         "Pieces before the move: " + piece_list(board, chess.WHITE) + ". " + piece_list(board, chess.BLACK) + ".",
         f"The move: {numbered_san(board, move)}: {describe_move(board, move)}.",
         f"Engine grade: {GRADE_LABELS[grade.classification]}.",
+    ]
+    # Why the student's move went wrong. Not for the opponent's moves: that would point at the student's answer.
+    if by_student and (reason := why_bad(board, move, grade, after.best.pv if after.best else ())) is not None:
+        lines.append(reason.facts_text())
+    lines += [
         (
             f"Engine evaluation: {format_eval(Eval.from_white_score(before.white_score()))} before the move, "
             f"{format_eval(grade.eval_after)} after it. {color_name(mover)}'s chance of winning went from "

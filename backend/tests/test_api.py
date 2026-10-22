@@ -54,7 +54,7 @@ def test_hanging_the_queen(client):
     assert g["classification"] == "blunder"
     assert g["retry_suggested"]
     assert g["refutation"][0] == "Bxg4"
-    assert g["message"] == "Blunder! 2...Bxg4 wins your queen."
+    assert g["message"] == "Blunder! 2.Qg4 puts your queen on g4, where 2...Bxg4 takes it."
 
 
 def test_allowing_mate(client):
@@ -132,7 +132,7 @@ def test_explain_falls_back_to_the_template_without_claude(client):
     use_explainer(client, None)
     assert client.get("/api/config").json() == {"coach_ai": False, "model": None, "via": None}
     events = explain(client, ["e2e4", "d7d5", "d1g4"])
-    assert events == [{"type": "done", "text": "Blunder! 2...Bxg4 wins your queen.", "source": "template"}]
+    assert events == [{"type": "done", "text": "Blunder! 2.Qg4 puts your queen on g4, where 2...Bxg4 takes it.", "source": "template"}]
 
 
 def test_explain_streams_claudes_comment_from_the_fact_sheet(client):
@@ -164,7 +164,7 @@ def test_explain_falls_back_when_claude_fails(client):
 def test_explain_falls_back_on_unexpected_errors(client):
     use_explainer(client, FakeClient([text("half"), RuntimeError("bug")]))
     events = explain(client, ["e2e4", "d7d5", "d1g4"])
-    assert events[-1] == {"type": "done", "text": "Blunder! 2...Bxg4 wins your queen.", "source": "template"}
+    assert events[-1] == {"type": "done", "text": "Blunder! 2.Qg4 puts your queen on g4, where 2...Bxg4 takes it.", "source": "template"}
 
 
 def stream_events(client, path, payload):

@@ -401,6 +401,14 @@ main {
   font-size: 0.9rem;
   color: var(--muted);
 }
+.setting label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.setting input[type='checkbox'] {
+  accent-color: var(--accent);
+}
 
 /* New game */
 

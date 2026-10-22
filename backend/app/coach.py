@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import chess
 
-from .grading import PIECE_VALUES, MoveGrade, is_recapture, numbered_san
+from .engine import Line
+from .facts import why_bad
+from .grading import PIECE_VALUES, MoveGrade, is_recapture, material_change, numbered_san
 
 # Messages for moves the coach offers to take back never reveal the best move,
 # so "try again" stays a real puzzle. The client has a separate "show me" button.
@@ -59,6 +61,21 @@ def _why_bad(grade: MoveGrade, board: chess.Board) -> str:
     return f"Your opponent can answer {reply} and gets the better position."
 
 
+def _reason_text(grade: MoveGrade, board: chess.Board) -> str | None:
+    """The specific reason from facts.why_bad (the same one Claude gets), when it names a piece."""
+    move = chess.Move.from_uci(grade.uci)
+    b = board.copy(stack=False)
+    b.push(move)
+    line = []
+    for san in grade.refutation:
+        line.append(b.parse_san(san))
+        b.push(line[-1])
+    reason = why_bad(board, move, grade, tuple(line))
+    if reason is not None and reason.also is not None:
+        reason = reason.also  # the missed mate is mentioned separately
+    return reason.coach_text() if reason is not None else None
+
+
 def describe_user_move(grade: MoveGrade, board: chess.Board) -> str:
     """Comment on the user's move. `board` is the position before it was played."""
     c = grade.classification
@@ -83,7 +100,8 @@ def describe_user_move(grade: MoveGrade, board: chess.Board) -> str:
     if c == "good":
         return f"Good move. {grade.best_san} was a little stronger."
     if c == "inaccuracy":
-        return " ".join(filter(None, ["Inaccuracy.", _why_bad(grade, board), f"{grade.best_san} was better."]))
+        why = _reason_text(grade, board) or _why_bad(grade, board)
+        return " ".join(filter(None, ["Inaccuracy.", why, f"{grade.best_san} was better."]))
     if c == "miss":
         if grade.missed_mate_in == 1:
             return "You missed checkmate in one!"
@@ -98,15 +116,35 @@ def describe_user_move(grade: MoveGrade, board: chess.Board) -> str:
         missed = "You had checkmate in one here."
     elif grade.missed_mate_in:
         missed = f"You had a forced checkmate in {grade.missed_mate_in} here."
-    return " ".join(filter(None, [label, missed, _why_bad(grade, board)]))
+    return " ".join(filter(None, [label, missed, _reason_text(grade, board) or _why_bad(grade, board)]))
 
 
-def describe_opponent_move(grade: MoveGrade) -> str | None:
-    """A nudge after the bot's move, only when there's something for the user to find."""
+def threat_warning(board_after: chess.Board, threat: Line | None) -> str | None:
+    """'Watch out...' when the opponent's last move threatens mate or a piece worth a knight or more.
+    `board_after` is the position after that move (the student to move)."""
+    if threat is None:
+        return None
+    mate = threat.score.mate()
+    if mate is not None and mate > 0:
+        return "Watch out: your opponent is threatening checkmate."
+    passed = board_after.copy(stack=False)
+    passed.push(chess.Move.null())
+    if material_change(passed, threat.pv, passed.turn) < 3:
+        return None
+    first = threat.pv[0]
+    target = passed.piece_at(first.to_square)
+    if passed.is_capture(first) and target is not None and target.color == board_after.turn:
+        return f"Watch out: your {PIECE_NAMES[target.piece_type]} on {chess.square_name(first.to_square)} is under attack."
+    return "Watch out: your opponent is threatening to win material."
+
+
+def describe_opponent_move(grade: MoveGrade, warning: str | None = None) -> str | None:
+    """A note after the bot's move, only when there's something for the student to find or watch out for.
+    `warning` comes from threat_warning."""
     if grade.allows_mate_in:
         return "Your opponent just blundered. There's a forced checkmate for you here. Can you find it?"
     if grade.classification == "blunder":
         return "Your opponent just blundered! Look carefully: there's a way to punish it."
     if grade.classification == "mistake":
         return "Your opponent's last move was a mistake. See if you can take advantage."
-    return None
+    return warning

@@ -82,6 +82,10 @@ These can go in `.env` or the environment:
 
 ### How it works
 
+- **The main point:** for a bad move, code works out *why* before Claude sees anything. The move either
+  ignored a piece that was already under attack, put a piece on an attacked square, took away a piece's
+  defender, allowed a mate, or missed one (`facts.why_bad`). The comment is built around that. The built-in
+  comments use the same reasons.
 - **The fact sheet:** `backend/app/facts.py` turns the engine's analysis into plain sentences. It covers
   what the move does and attacks, the threat it creates, the engine's lines spelled out move by move,
   loose pieces, and mate facts. Claude gets only this sheet, never a chance to analyse the board itself.
@@ -90,6 +94,23 @@ These can go in `.env` or the environment:
   best reply when the opponent blunders.
 - **Streaming:** comments stream into the coach panel. If Claude fails or is slow, you keep the built-in
   comment.
+
+## How much the coach says
+
+By default the coach speaks up only at **key moments**. Every move still gets its grade badge, but full
+comments are kept for:
+- your mistakes, blunders and missed wins;
+- your great moves, missed mates, and finding the right move on a retry;
+- opponent moves that create a real threat ("Watch out: your queen on h5 is under attack") or that you can
+  punish.
+
+Inaccuracies get a short built-in note. Set **Coach comments** to "on every move" for a comment on everything
+(that uses more of your plan).
+
+Tick **Speak** to have the coach read those key comments, plus your hints and answers, aloud with your
+browser's built-in voice. Chess notation is read as words ("12...Nxe4+" becomes "knight takes e4, check"),
+and anything still being read stops as soon as you move. On Linux the built-in voices can sound robotic; a
+local voice model such as [Piper](https://github.com/OHF-Voice/piper1-gpl) would sound more natural.
 
 ## Hints and questions
 
@@ -183,7 +204,8 @@ backend/app/
   levels.py    Opponent strength presets
   config.py    Settings from env vars (COACH_ANALYSIS_DEPTH, COACH_ENGINE_THREADS, ...)
 frontend/src/
-  useCoachGame.ts   Game state: turns, grading, retry / take-back flow
+  useCoachGame.ts   Game state: turns, grading, retry / take-back flow, hints, questions, key moments
+  voice.ts          Reading comments aloud (browser speech), with notation turned into words
   components/       Board, EvalBar, CoachPanel, MoveList, NewGame
 ```
 

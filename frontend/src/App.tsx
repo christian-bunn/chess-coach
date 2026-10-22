@@ -5,7 +5,8 @@ import { CoachPanel } from './components/CoachPanel'
 import { EvalBar } from './components/EvalBar'
 import { MoveList } from './components/MoveList'
 import { NewGame } from './components/NewGame'
-import { useCoachGame, type RetryMode } from './useCoachGame'
+import { useCoachGame, type CoachMode, type RetryMode } from './useCoachGame'
+import { voiceSupported } from './voice'
 
 export default function App() {
   const [config, setConfig] = useState<CoachConfig>({ coach_ai: false, model: null, via: null })
@@ -118,6 +119,21 @@ export default function App() {
                   <option value="off">never</option>
                 </select>
               </label>
+              <div className="setting">
+                <label>
+                  Coach comments
+                  <select value={coach.coachMode} onChange={(e) => actions.setCoachMode(e.target.value as CoachMode)}>
+                    <option value="key">at key moments</option>
+                    <option value="all">on every move</option>
+                  </select>
+                </label>
+                {voiceSupported && (
+                  <label title="Read key comments, hints and answers aloud">
+                    <input type="checkbox" checked={coach.voice} onChange={(e) => actions.setVoice(e.target.checked)} />
+                    Speak
+                  </label>
+                )}
+              </div>
             </>
           )}
         </aside>
