@@ -2,7 +2,7 @@
 
 Play chess against Stockfish while a coach grades every move you make, the way chess.com's coach does.
 If you blunder or miss a win (a checkmate, say), the coach stops and offers to let you take the move back
-and try again.
+and try again. When you're stuck, ask for a hint, or ask the coach a question about the position.
 
 **Design rule:** the engine decides what's true, and the coach only puts it into words. Stockfish does all the
 chess. Claude writes the comments from a fact sheet the engine produces, and is told not to work anything
@@ -91,6 +91,29 @@ These can go in `.env` or the environment:
 - **Streaming:** comments stream into the coach panel. If Claude fails or is slow, you keep the built-in
   comment.
 
+## Hints and questions
+
+**Hint button:** each press on the same move reveals a little more:
+
+1. **The idea:** there's a checkmate, a way to win material, a threat to deal with, or nothing tactical. It
+   can also tell you that the material you're trying to save can't be kept.
+2. **The piece** to move, and whether the move is a capture or a check.
+3. **The move itself,** with an arrow on the board.
+
+Each level's facts contain only what that level may reveal, so a level-1 hint can't name the piece even by
+accident. Hints work without Claude too, using built-in text.
+
+**Questions** (needs Claude): type things like "what about Nf5?", "is my knight safe?", "can I castle?" or
+"why was that a blunder?".
+- **Mentioned moves get checked:** if you name moves (in notation, or as "knight to f5"), the engine
+  evaluates up to three of them first, and the coach answers from those results.
+- **Illegal moves:** if a move you name isn't possible, it says so.
+- **No unrequested answers:** the engine's best moves are only shared when you ask what to play, and the
+  coach won't reveal the move you're retrying.
+- **Engine verdict:** answers include the same one-line verdict the hints use, such as "you can't keep the
+  pawn on d5, so develop instead", which keeps the advice consistent.
+- **Usage:** each hint or question is one short request on your plan.
+
 ## Run
 
 ```bash
@@ -108,6 +131,7 @@ cd backend && .venv/bin/python -m pytest
 `tests/test_grading.py` checks the grading rules using made-up engine output. `tests/test_api.py` runs real
 positions through Stockfish, for example a hung queen, allowing mate, and missing mate in one.
 `tests/test_facts.py` checks the fact sheet, including that hidden answers really are absent.
+`tests/test_advice.py` checks what each hint level reveals and how moves are spotted in questions.
 `tests/test_explain.py` covers the API path, using a fake client plus the real SDK over a mock transport.
 `tests/test_claude_code.py` covers the Claude Code path against a fake `claude` program. The test suite
 never calls Claude, so it spends neither plan usage nor API credit.
@@ -146,10 +170,13 @@ Thresholds are constants at the top of `backend/app/grading.py`.
 
 ```
 backend/app/
-  main.py      FastAPI routes: /api/levels, /api/config, /api/analyze, /api/grade, /api/bot-move, /api/explain
+  main.py      FastAPI routes: /api/levels, /api/config, /api/analyze, /api/grade, /api/bot-move,
+               /api/explain, /api/hint, /api/ask
   engine.py    Two Stockfish processes (analysis + opponent), position cache, null-move threat search
   grading.py   win%, material counting, classification -> MoveGrade
   facts.py     The plain-language fact sheet Claude explains from
+  advice.py    Facts for hints (by level) and for questions, and spotting moves named in a question
+  prompts.py   System prompts for move comments, hints and questions
   explain.py   Claude through the API (system prompt, streaming, refusal fallback)
   claude_code.py  Claude through Claude Code's headless mode, on your Claude plan
   coach.py     Built-in comment templates (fallback when Claude isn't available)
@@ -168,6 +195,6 @@ request, and the server caches analysis by position.
 1. ~~Playable game against Stockfish at adjustable strength~~
 2. ~~Move grading, eval bar, take-backs and "try again"~~
 3. ~~Claude writes the explanations, using the engine facts in each `MoveGrade`~~
-4. Hints that reveal a little more each time, and a chat where you can ask the coach questions (the coach checks
-   answers with engine tools)
+4. ~~Hints that reveal a little more each time, and a chat where you can ask the coach questions (the coach checks
+   answers with the engine)~~
 5. End-of-game review, accuracy score, opening names, saved games

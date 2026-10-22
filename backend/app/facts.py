@@ -137,10 +137,10 @@ def format_eval(ev: Eval) -> str:
 def material_phrase(color: chess.Color, change: int) -> str:
     who = color_name(color)
     if change > 0:
-        return f"{who} comes out {change} point{'s' if change != 1 else ''} of material ahead (pawn = 1)"
+        return f"{who} gains {change} point{'s' if change != 1 else ''} of material compared with now (pawn = 1)"
     if change < 0:
-        return f"{who} comes out {-change} point{'s' if change != -1 else ''} of material behind (pawn = 1)"
-    return "material stays level"
+        return f"{who} loses {-change} point{'s' if change != -1 else ''} of material compared with now (pawn = 1)"
+    return "the material balance doesn't change"
 
 
 def describe_threat(board_after: chess.Board, threat: Line | None) -> str | None:

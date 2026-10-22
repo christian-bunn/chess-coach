@@ -165,3 +165,51 @@ def test_explain_falls_back_on_unexpected_errors(client):
     use_explainer(client, FakeClient([text("half"), RuntimeError("bug")]))
     events = explain(client, ["e2e4", "d7d5", "d1g4"])
     assert events[-1] == {"type": "done", "text": "Blunder! 2...Bxg4 wins your queen.", "source": "template"}
+
+
+def stream_events(client, path, payload):
+    response = client.post(path, json=payload)
+    assert response.status_code == 200, response.text
+    return [json.loads(line) for line in response.text.splitlines()]
+
+
+def test_hint_without_claude_uses_the_template(client):
+    use_explainer(client, None)
+    events = stream_events(client, "/api/hint", {"moves": SCHOLARS_SETUP, "student_color": "white", "level": 1})
+    assert events == [{"type": "done", "text": "There's checkmate in one here. Look at every check you can give.",
+                       "source": "template"}]
+
+
+def test_last_hint_level_sends_the_move_first(client):
+    use_explainer(client, FakeClient([text("Take on f7 with the queen.")]))
+    events = stream_events(client, "/api/hint", {"moves": SCHOLARS_SETUP, "student_color": "white", "level": 3})
+    assert events[0] == {"type": "move", "uci": "h5f7"}
+    assert events[-1]["source"] == "claude"
+
+
+def test_hint_only_on_the_students_move(client):
+    response = client.post("/api/hint", json={"moves": SCHOLARS_SETUP, "student_color": "black", "level": 1})
+    assert response.status_code == 409
+
+
+def test_ask_without_claude_explains_how_to_turn_it_on(client):
+    use_explainer(client, None)
+    events = stream_events(client, "/api/ask", {"moves": ["e2e4"], "student_color": "white", "question": "Why?"})
+    assert events[-1]["source"] == "template" and "Claude Code" in events[-1]["text"]
+
+
+def test_ask_checks_the_moves_in_the_question(client):
+    fake = FakeClient([text("Bxf7+ wins a pawn but...")])
+    use_explainer(client, fake)
+    payload = {
+        "moves": SCHOLARS_SETUP, "student_color": "white", "question": "What about Bxf7+ or Ra3?",
+        "history": [{"question": "Who is better?", "answer": "You are."}],
+    }
+    events = stream_events(client, "/api/ask", payload)
+    assert events[-1]["source"] == "claude"
+    prompt = fake.calls[0]["messages"][0]["content"]
+    assert "If White played 4.Bxf7+" in prompt
+    assert "Mentioned but not legal for White right now: Ra3." in prompt  # the a2 pawn is in the way
+    assert prompt.startswith("Earlier in this conversation:\nStudent: Who is better?\nCoach: You are.")
+    assert prompt.endswith("The student's question: What about Bxf7+ or Ra3?")
+    assert fake.calls[0]["system"][0]["text"].startswith("You are a friendly, expert chess coach answering")

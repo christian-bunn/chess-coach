@@ -16,7 +16,8 @@ import tempfile
 from collections.abc import AsyncIterator
 
 from .config import Settings
-from .explain import SYSTEM_PROMPT, ExplainError
+from .explain import ExplainError
+from .prompts import COMMENT_PROMPT
 
 log = logging.getLogger(__name__)
 
@@ -78,12 +79,12 @@ class ClaudeCodeExplainer:
         else:
             log.info("Claude Code isn't logged in. Run `claude` once and log in with your Claude account.")
 
-    def _args(self) -> list[str]:
+    def _args(self, system: str) -> list[str]:
         return [
             self.command, "-p",
             "--model", self.model,
             "--effort", self.effort,
-            "--system-prompt", SYSTEM_PROMPT,
+            "--system-prompt", system,
             "--tools", "",
             "--strict-mcp-config",
             "--disable-slash-commands",
@@ -91,13 +92,13 @@ class ClaudeCodeExplainer:
             "--output-format", "stream-json", "--verbose", "--include-partial-messages",
         ]
 
-    async def stream(self, facts: str) -> AsyncIterator[dict]:
+    async def stream(self, prompt: str, system: str = COMMENT_PROMPT) -> AsyncIterator[dict]:
         """Same events as explain.Explainer.stream: text chunks, then {"type": "done", "text"}."""
         if not self._available:
             raise ExplainError("Claude Code isn't available")
         async with self._slots:
             proc = await asyncio.create_subprocess_exec(
-                *self._args(),
+                *self._args(system),
                 stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
                 env=self._env(), cwd=self._workdir, limit=1 << 20,
             )
@@ -105,7 +106,7 @@ class ClaudeCodeExplainer:
             stderr = asyncio.create_task(proc.stderr.read())
             try:
                 async with asyncio.timeout(TIMEOUT_SECONDS):
-                    proc.stdin.write(facts.encode())
+                    proc.stdin.write(prompt.encode())
                     await proc.stdin.drain()
                     proc.stdin.close()
                     result = None

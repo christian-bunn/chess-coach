@@ -250,6 +250,7 @@ main {
 }
 .bubble p {
   margin: 0;
+  white-space: pre-wrap;
 }
 .bubble.info {
   background: transparent;
@@ -276,6 +277,44 @@ main {
   50% {
     opacity: 0.25;
   }
+}
+.bubble.question {
+  align-self: flex-end;
+  max-width: 85%;
+  background: #3d4a31;
+}
+.bubble.hint {
+  border-left: 3px solid #f0c03a;
+}
+.hint-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.85rem;
+}
+.hint-row button {
+  padding: 6px 12px;
+}
+.ask {
+  display: flex;
+  gap: 6px;
+}
+.ask input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 10px;
+}
+.ask input:disabled {
+  opacity: 0.6;
+}
+.ask button {
+  padding: 7px 10px;
+  white-space: nowrap;
 }
 .coach-source {
   margin: 0;

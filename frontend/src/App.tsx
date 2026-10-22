@@ -95,6 +95,10 @@ export default function App() {
                 onShowBest={() => actions.tryAgain(true)}
                 onContinue={actions.continueGame}
                 onRetryFailed={actions.retryFailed}
+                canHint={coach.canHint}
+                hintsUsed={coach.hintsUsed}
+                onHint={actions.requestHint}
+                onAsk={actions.ask}
               />
               <div className="controls">
                 <button onClick={actions.undo} disabled={!coach.canUndo} title="Take back your last move">

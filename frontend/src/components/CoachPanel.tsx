@@ -1,7 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CoachConfig } from '../api'
 import { GRADE_META } from '../grades'
-import { moveLabel, type CoachMessage, type Phase } from '../useCoachGame'
+import { HINT_LEVELS, moveLabel, type CoachMessage, type Phase } from '../useCoachGame'
 
 interface CoachPanelProps {
   messages: CoachMessage[]
@@ -13,7 +13,14 @@ interface CoachPanelProps {
   onShowBest: () => void
   onContinue: () => void
   onRetryFailed: () => void
+  canHint: boolean
+  /** Hint levels already used at this position. */
+  hintsUsed: number
+  onHint: () => void
+  onAsk: (question: string) => void
 }
+
+const HINT_LABELS = ['Hint', 'Bigger hint', 'Show move']
 
 const STATUS: Partial<Record<Phase, string>> = {
   grading: 'Looking at your move…',
@@ -29,7 +36,12 @@ export function CoachPanel({
   onShowBest,
   onContinue,
   onRetryFailed,
+  canHint,
+  hintsUsed,
+  onHint,
+  onAsk,
 }: CoachPanelProps) {
+  const [question, setQuestion] = useState('')
   const feed = useRef<HTMLDivElement>(null)
   // Follow new text only while the reader is at the bottom, so scrolling up to reread isn't interrupted.
   const following = useRef(true)
@@ -70,6 +82,42 @@ export function CoachPanel({
           </button>
         </div>
       )}
+      <div className="hint-row">
+        <button
+          type="button"
+          onClick={onHint}
+          disabled={!canHint}
+          title={hintsUsed >= HINT_LEVELS ? 'No more hints for this move' : 'Get a hint for your move'}
+        >
+          💡 {HINT_LABELS[Math.min(hintsUsed, HINT_LEVELS - 1)]}
+        </button>
+        {hintsUsed > 0 && (
+          <span className="muted">
+            {hintsUsed}/{HINT_LEVELS} hints used
+          </span>
+        )}
+      </div>
+      <form
+        className="ask"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (!question.trim()) return
+          onAsk(question)
+          setQuestion('')
+        }}
+      >
+        <input
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          maxLength={500}
+          disabled={!coachAI}
+          placeholder={coachAI ? 'Ask the coach… e.g. "what about Nf5?"' : 'Questions need Claude (see README)'}
+          aria-label="Ask the coach a question"
+        />
+        <button type="submit" disabled={!coachAI || !question.trim()}>
+          Ask
+        </button>
+      </form>
       <p className="coach-source">
         {coachAI?.via === 'claude-code' ? (
           <>Comments by Claude ({coachAI.model}) through Claude Code, on your Claude plan.</>
@@ -107,8 +155,23 @@ function Message({ message }: { message: CoachMessage }) {
       </div>
     )
   }
+  if (message.kind === 'question') {
+    return (
+      <div className="bubble question">
+        <p>{message.text}</p>
+      </div>
+    )
+  }
   return (
     <div className={`bubble ${message.kind}`}>
+      {message.kind === 'hint' && (
+        <div className="bubble-head">
+          <span aria-hidden>💡</span>
+          <strong>
+            Hint {message.hintLevel}/{HINT_LEVELS}
+          </strong>
+        </div>
+      )}
       {message.kind === 'opponent' && grade && (
         <div className="bubble-head">
           <span className="badge" style={{ background: GRADE_META[grade.classification].color }}>

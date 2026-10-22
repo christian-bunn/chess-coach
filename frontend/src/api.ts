@@ -76,26 +76,44 @@ export interface CoachConfig {
   via: 'claude-code' | 'api' | null
 }
 
-export type ExplainEvent =
+/** One line of a streamed coach reply (comment, hint or answer). */
+export type CoachEvent =
   | { type: 'text'; text: string }
   /** Discard what has streamed so far (a fallback model took over, or Claude failed). */
   | { type: 'reset' }
+  /** The suggested move, sent first by the last hint level so the board can show it. */
+  | { type: 'move'; uci: string }
   | { type: 'done'; text: string; source: 'claude' | 'template' }
 
-export interface ExplainRequest {
+interface PositionRequest {
   moves: string[]
   student_color: 'white' | 'black'
+}
+
+export interface ExplainRequest extends PositionRequest {
   /** False while a retry is on offer, so the comment can't give the answer away. */
   reveal_best: boolean
 }
 
-// Give up on a comment that takes longer than this; the caller keeps the built-in one.
-const EXPLAIN_TIMEOUT_MS = 45_000
+export interface HintRequest extends PositionRequest {
+  /** 1: the idea, 2: the piece, 3: the move. */
+  level: number
+}
 
-/** Stream the coach's comment on the last move in `moves`; the server sends one JSON event per line. */
-async function explain(body: ExplainRequest, onEvent: (event: ExplainEvent) => void, signal?: AbortSignal) {
-  const timeout = AbortSignal.timeout(EXPLAIN_TIMEOUT_MS)
-  const response = await fetch('/api/explain', {
+export interface AskRequest extends PositionRequest {
+  question: string
+  /** Earlier questions and answers, oldest first, for context. */
+  history: { question: string; answer: string }[]
+  reveal_best: boolean
+}
+
+// Give up on a reply that takes longer than this; the caller keeps its fallback text.
+const STREAM_TIMEOUT_MS = 45_000
+
+/** POST `body` to `path` and pass each streamed event to `onEvent`; the server sends one JSON event per line. */
+async function streamCoach(path: string, body: unknown, onEvent: (event: CoachEvent) => void, signal?: AbortSignal) {
+  const timeout = AbortSignal.timeout(STREAM_TIMEOUT_MS)
+  const response = await fetch(`/api${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -110,14 +128,19 @@ async function explain(body: ExplainRequest, onEvent: (event: ExplainEvent) => v
     buffered += value
     const lines = buffered.split('\n')
     buffered = lines.pop() ?? ''
-    for (const line of lines) if (line.trim()) onEvent(JSON.parse(line) as ExplainEvent)
+    for (const line of lines) if (line.trim()) onEvent(JSON.parse(line) as CoachEvent)
   }
 }
+
+type OnEvent = (event: CoachEvent) => void
 
 export const api = {
   config: () => request<CoachConfig>('/config'),
   levels: () => request<Level[]>('/levels'),
-  explain,
+  /** The coach's comment on the last move in `moves`. */
+  explain: (body: ExplainRequest, onEvent: OnEvent, signal?: AbortSignal) => streamCoach('/explain', body, onEvent, signal),
+  hint: (body: HintRequest, onEvent: OnEvent, signal?: AbortSignal) => streamCoach('/hint', body, onEvent, signal),
+  ask: (body: AskRequest, onEvent: OnEvent, signal?: AbortSignal) => streamCoach('/ask', body, onEvent, signal),
   analyze: (moves: string[], signal?: AbortSignal) => request<Analysis>('/analyze', { moves }, signal),
   grade: (moves: string[], signal?: AbortSignal) => request<MoveGrade>('/grade', { moves }, signal),
   botMove: (moves: string[], level: string, signal?: AbortSignal) =>
