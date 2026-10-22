@@ -228,29 +228,65 @@ class Reason:
         }.get(self.kind)
 
 
+def _losing_capture(after_board: chess.Board, line: tuple[chess.Move, ...], mover: chess.Color) -> int | None:
+    """Index in `line` of the first capture of one of `mover`'s pieces that actually costs material.
+
+    A capture answered by an equal or bigger recapture (a queen trade, say) is skipped: the loss is
+    whatever comes after it.
+    """
+    moves = line[:MATERIAL_HORIZON]
+    b = after_board.copy(stack=False)
+    for i, m in enumerate(moves):
+        if b.turn != mover and b.is_capture(m) and not b.is_en_passant(m):
+            taken = PIECE_VALUES[b.piece_type_at(m.to_square)]
+            taker = PIECE_VALUES.get(b.piece_type_at(m.from_square), 100)  # a king can't be recaptured
+            following = moves[i + 1] if i + 1 < len(moves) else None
+            b.push(m)
+            recaptured = following is not None and following.to_square == m.to_square and b.is_capture(following)
+            if not recaptured or taker < taken:
+                return i
+            continue
+        b.push(m)
+    return None
+
+
 def _material_loss(board: chess.Board, move: chess.Move, grade: MoveGrade, line: tuple[chess.Move, ...]) -> Reason | None:
-    """How the move loses material, judged by the opponent's immediate reply."""
+    """How the move loses material: the piece the opponent wins, and how that relates to the move."""
     if grade.material_change > -1 or not line:
         return None
     mover = board.turn
     after_board = board.copy(stack=False)
     after_board.push(move)
     label = numbered_san(board, move)
-    reply, reply_san = line[0], numbered_san(after_board, line[0])
-    if after_board.is_capture(reply) and not after_board.is_en_passant(reply):
-        square = reply.to_square
-        victim = after_board.piece_at(square)
-        name, where = PIECE_NAMES[victim.piece_type], chess.square_name(square)
-        if square == move.to_square:
-            return Reason("hung", label, reply_san, name, where)
-        was_attacked = board.piece_at(square) == victim and board.is_attacked_by(not mover, square)
-        if was_attacked and move.from_square in board.attackers(mover, square):
-            defender = PIECE_NAMES[board.piece_type_at(move.from_square)]
-            return Reason("defender", label, reply_san, name, where, other=defender)
-        if was_attacked:
-            attackers = sorted(board.attackers(not mover, square), key=lambda s: PIECE_VALUES.get(board.piece_type_at(s), 99))
-            attacker = f"{PIECE_NAMES[board.piece_type_at(attackers[0])]} on {chess.square_name(attackers[0])}"
-            return Reason("ignored", label, reply_san, name, where, other=attacker)
+    i = _losing_capture(after_board, line, mover)
+    if i is None:
+        return Reason("loses", label, numbered_san(after_board, line[0]), amount=-grade.material_change)
+
+    # Play the line up to the capture; anything before it (a trade, a check) is mentioned as a lead-in.
+    b = after_board.copy(stack=False)
+    lead_in = []
+    for m in line[:i]:
+        lead_in.append(numbered_san(b, m))
+        b.push(m)
+    capture = line[i]
+    square = capture.to_square
+    victim = b.piece_at(square)
+    reply_san = numbered_san(b, capture)
+    if lead_in:
+        reply_san = f"{reply_san} (after {' '.join(lead_in)})"
+    name, where = PIECE_NAMES[victim.piece_type], chess.square_name(square)
+    # Has the piece stayed put since the student's move? Only then is it "the piece the move left there".
+    unmoved = all(m.from_square != square for m in line[:i])
+    if square == move.to_square and unmoved:
+        return Reason("hung", label, reply_san, name, where)
+    was_attacked = unmoved and board.piece_at(square) == victim and board.is_attacked_by(not mover, square)
+    if was_attacked and move.from_square in board.attackers(mover, square):
+        defender = PIECE_NAMES[board.piece_type_at(move.from_square)]
+        return Reason("defender", label, reply_san, name, where, other=defender)
+    if was_attacked:
+        attackers = sorted(board.attackers(not mover, square), key=lambda s: PIECE_VALUES.get(board.piece_type_at(s), 99))
+        attacker = f"{PIECE_NAMES[board.piece_type_at(attackers[0])]} on {chess.square_name(attackers[0])}"
+        return Reason("ignored", label, reply_san, name, where, other=attacker)
     return Reason("loses", label, reply_san, amount=-grade.material_change)
 
 

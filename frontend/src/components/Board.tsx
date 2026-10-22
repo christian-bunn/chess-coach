@@ -77,6 +77,9 @@ export function Board({ game, orientation, interactive, userColor, lastMove, bad
           allowDragging: interactive,
           arrows,
           darkSquareStyle: { backgroundColor: '#769656' },
+          // Coordinates scale with the board instead of staying at a fixed tiny size.
+          alphaNotationStyle: { fontSize: 'calc(var(--board-size) / 8 * 0.17)', fontWeight: 600 },
+          numericNotationStyle: { fontSize: 'calc(var(--board-size) / 8 * 0.17)', fontWeight: 600 },
           lightSquareStyle: { backgroundColor: '#eeeed2' },
           canDragPiece: ({ piece }) => ownsPiece(piece.pieceType),
           onPieceDrag: ({ square }) => setSelected(square as Square | null),

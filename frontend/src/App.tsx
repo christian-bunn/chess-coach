@@ -109,9 +109,21 @@ export default function App() {
                   ⇅ Flip
                 </button>
                 <button onClick={() => setShowSetup(true)}>New game</button>
+                {voiceSupported && (
+                  <button
+                    className="icon"
+                    onClick={() => actions.setVoice(!coach.voice)}
+                    title={coach.voice ? 'Stop speaking comments' : 'Speak key comments aloud'}
+                    aria-pressed={coach.voice}
+                  >
+                    {coach.voice ? '🔊' : '🔇'}
+                  </button>
+                )}
               </div>
               <MoveList plies={plies} />
-              <label className="setting">
+              <details className="settings">
+                <summary>⚙ Settings</summary>
+                <label className="setting">
                 Offer a retry after
                 <select value={coach.retryMode} onChange={(e) => actions.setRetryMode(e.target.value as RetryMode)}>
                   <option value="mistakes">mistakes, misses and blunders</option>
@@ -134,6 +146,16 @@ export default function App() {
                   </label>
                 )}
               </div>
+                <p className="coach-source">
+                  {config.coach_ai && config.via === 'claude-code' ? (
+                    <>Comments by Claude ({config.model}) through Claude Code, on your Claude plan.</>
+                  ) : config.coach_ai ? (
+                    <>Comments by Claude ({config.model}) through the Anthropic API, billed to your API key.</>
+                  ) : (
+                    <>Built-in comments. Log in to Claude Code to have Claude explain each move (see README).</>
+                  )}
+                </p>
+              </details>
             </>
           )}
         </aside>

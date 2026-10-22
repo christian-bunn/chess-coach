@@ -127,6 +127,26 @@ class TestWhyBad:
         assert r.kind == "missed_mate" and r.also.kind == "ignored"
         assert r.facts_text().startswith("MAIN POINT: 4.d3 misses a forced checkmate in 1. On top of that: ")
 
+    def test_an_even_trade_is_not_the_loss(self):
+        # From a real game: after 10.O-O the rooks defend d1, so 10...Qxd1 is only a queen trade.
+        # The real loss is the a4 bishop, attacked by the knight on b6 since 9...Nb6.
+        board = board_after(*"e4 e5 Nc3 Nf6 Bb5 c6 Ba4 a5 d4 d5 dxe5 Nfd7 Nf3 dxe4 Bg5 Be7 Nxe4 Nb6".split())
+        move = board.parse_san("O-O")
+        after_board = board.copy()
+        after_board.push(move)
+        pv, b = [], after_board.copy()
+        for san in ("Qxd1", "Raxd1", "Nxa4"):
+            pv.append(b.parse_san(san))
+            b.push(pv[-1])
+        after = Analysis(after_board.turn, Cp(150), (Line(Cp(150), tuple(pv)),))
+        g = grade_move(board, move, fake_analysis(board, ("Nd6+", Cp(370))), after)
+        r = why_bad(board, move, g, tuple(pv))
+        assert r.kind == "ignored" and r.piece == "bishop" and r.square == "a4"
+        assert r.coach_text() == (
+            "Your bishop on a4 was already under attack, and 10.O-O didn't deal with it: "
+            "11...Nxa4 (after 10...Qxd1 11.Raxd1) wins it."
+        )
+
     def test_good_moves_have_no_reason(self):
         board = board_after("e4", "e5")
         g = grade(board, "Nf3", fake_analysis(board, ("Nf3", Cp(40))), Cp(-40), "Nc6")

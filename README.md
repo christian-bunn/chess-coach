@@ -104,11 +104,14 @@ comments are kept for:
 - opponent moves that create a real threat ("Watch out: your queen on h5 is under attack") or that you can
   punish.
 
-Inaccuracies get a short built-in note. Set **Coach comments** to "on every move" for a comment on everything
-(that uses more of your plan).
+Inaccuracies get a short built-in note. Under **⚙ Settings**, set **Coach comments** to "on every move" for a
+comment on everything (that uses more of your plan).
 
-Tick **Speak** to have the coach read those key comments, plus your hints and answers, aloud with your
-browser's built-in voice. Chess notation is read as words ("12...Nxe4+" becomes "knight takes e4, check"),
+The newest message is outlined. If you scroll up to reread something, new messages won't pull you away, and
+a **↓ Latest** button takes you back.
+
+Turn on **Speak** (the 🔊 button, or under ⚙ Settings) to have the coach read those key comments, plus your
+hints and answers, aloud with your browser's built-in voice. Chess notation is read as words ("12...Nxe4+" becomes "knight takes e4, check"),
 and anything still being read stops as soon as you move. On Linux the built-in voices can sound robotic; a
 local voice model such as [Piper](https://github.com/OHF-Voice/piper1-gpl) would sound more natural.
 
