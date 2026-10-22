@@ -1,0 +1,125 @@
+// Types mirror backend/app/grading.py and backend/app/main.py.
+
+export type Classification =
+  | 'forced'
+  | 'best'
+  | 'great'
+  | 'excellent'
+  | 'good'
+  | 'inaccuracy'
+  | 'mistake'
+  | 'miss'
+  | 'blunder'
+
+/** Evaluation from White's point of view. */
+export interface Eval {
+  cp: number | null
+  /** Moves until mate: positive = White mates, negative = Black mates, 0 = checkmate on the board. */
+  mate: number | null
+  white_win: number
+}
+
+export interface MoveGrade {
+  ply: number
+  color: 'white' | 'black'
+  uci: string
+  san: string
+  classification: Classification
+  win_before: number
+  win_after: number
+  win_loss: number
+  eval_after: Eval
+  best_move: string | null
+  best_san: string | null
+  best_line: string[]
+  refutation: string[]
+  material_change: number
+  best_material_change: number
+  missed_mate_in: number | null
+  allows_mate_in: number | null
+  delivers_mate: boolean
+  retry_suggested: boolean
+  message: string | null
+}
+
+export interface Level {
+  id: string
+  name: string
+  elo: number
+  description: string
+}
+
+export interface Analysis {
+  eval: Eval
+  lines: { uci: string; san: string; eval: Eval; pv: string[] }[]
+}
+
+async function request<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`/api${path}`, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
+  })
+  if (!response.ok) {
+    const detail = await response.json().then((j) => j.detail, () => null)
+    throw new Error(typeof detail === 'string' ? detail : `Server error (${response.status})`)
+  }
+  return response.json() as Promise<T>
+}
+
+export interface CoachConfig {
+  /** Whether Claude writes the comments (otherwise the built-in templates do). */
+  coach_ai: boolean
+  model: string | null
+  /** "claude-code": through Claude Code on the user's Claude plan. "api": an API key, billed per request. */
+  via: 'claude-code' | 'api' | null
+}
+
+export type ExplainEvent =
+  | { type: 'text'; text: string }
+  /** Discard what has streamed so far (a fallback model took over, or Claude failed). */
+  | { type: 'reset' }
+  | { type: 'done'; text: string; source: 'claude' | 'template' }
+
+export interface ExplainRequest {
+  moves: string[]
+  student_color: 'white' | 'black'
+  /** False while a retry is on offer, so the comment can't give the answer away. */
+  reveal_best: boolean
+}
+
+// Give up on a comment that takes longer than this; the caller keeps the built-in one.
+const EXPLAIN_TIMEOUT_MS = 45_000
+
+/** Stream the coach's comment on the last move in `moves`; the server sends one JSON event per line. */
+async function explain(body: ExplainRequest, onEvent: (event: ExplainEvent) => void, signal?: AbortSignal) {
+  const timeout = AbortSignal.timeout(EXPLAIN_TIMEOUT_MS)
+  const response = await fetch('/api/explain', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+  })
+  if (!response.ok || !response.body) throw new Error(`Server error (${response.status})`)
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
+  let buffered = ''
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffered += value
+    const lines = buffered.split('\n')
+    buffered = lines.pop() ?? ''
+    for (const line of lines) if (line.trim()) onEvent(JSON.parse(line) as ExplainEvent)
+  }
+}
+
+export const api = {
+  config: () => request<CoachConfig>('/config'),
+  levels: () => request<Level[]>('/levels'),
+  explain,
+  analyze: (moves: string[], signal?: AbortSignal) => request<Analysis>('/analyze', { moves }, signal),
+  grade: (moves: string[], signal?: AbortSignal) => request<MoveGrade>('/grade', { moves }, signal),
+  botMove: (moves: string[], level: string, signal?: AbortSignal) =>
+    request<MoveGrade>('/bot-move', { moves, level }, signal),
+}

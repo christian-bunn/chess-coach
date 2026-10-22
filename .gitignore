@@ -1,0 +1,15 @@
+# Local Stockfish copy (or install it system-wide with `sudo apt install stockfish`)
+/engine/
+
+# Local settings, including your Anthropic API key
+.env
+
+# Python
+__pycache__/
+*.pyc
+backend/.venv/
+.pytest_cache/
+
+# Node
+node_modules/
+frontend/dist/
