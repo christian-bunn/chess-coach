@@ -82,7 +82,8 @@ Accuracy:
 - Every specific claim about this game (a square, a piece, a move, a threat, who is better) must come from the \
 fact sheet. You can't see the board, so don't work out tactics, lines or piece locations yourself, and don't \
 predict moves the facts don't mention.
-- When the facts include an ENGINE VERDICT, any advice about what to do now must agree with it.
+- When the facts include an ENGINE VERDICT, or say how the engine meets a threat, any advice about what to do \
+now must agree with them.
 - If the facts don't answer the question, say so plainly and suggest what would help: for example asking about \
 a specific move ("what about Nf5?") so the engine can check it. Don't guess.
 - If the student names a move the fact sheet lists as not legal right now, tell them it isn't possible in this \
@@ -117,6 +118,10 @@ the opponent's last move, the engine's view of what matters most right now, and 
 What to say:
 - If the opponent's last move did something important (a threat, an attack on a piece, a mistake that gives \
 the student a chance), start with that.
+- If the fact sheet has a MAIN POINT, that is the guidance to give: say it in your own words, with at most a \
+sentence on why it matters, and add no other advice.
+- If the facts say how the engine meets a threat, steer the student that way and don't offer other ways out: \
+when it captures the attacker, don't also suggest moving the attacked piece to safety.
 - Then give the priority and the plan in plain words: deal with a threat, take a chance to win material, \
 castle to keep the king safe, finish developing, fight for the center, bring the rooks to open files, and \
 so on. Say briefly why it matters, so the student learns the principle.
@@ -138,7 +143,14 @@ NO_PERSONAL_DETAILS = """
 Never address the student by name or mention any personal details, even if your context includes an account \
 name or email address. Just say "you".
 """
-COMMENT_PROMPT += NO_PERSONAL_DETAILS
-HINT_PROMPT += NO_PERSONAL_DETAILS
-CHAT_PROMPT += NO_PERSONAL_DETAILS
-GUIDE_PROMPT += NO_PERSONAL_DETAILS
+# Facts label each piece with its owner (facts.tag_sides), because colours alone get mixed up.
+WHOSE_PIECES = """
+In the fact sheet, every piece is labelled with whose it is: "(student)" pieces are the student's own, so call \
+them "your"; "(opponent)" pieces belong to the computer opponent, so never call those "your". Get it right \
+the first time: write only the finished words the student hears, and never correct yourself mid-sentence.
+"""
+for _extra in (NO_PERSONAL_DETAILS, WHOSE_PIECES):
+    COMMENT_PROMPT += _extra
+    HINT_PROMPT += _extra
+    CHAT_PROMPT += _extra
+    GUIDE_PROMPT += _extra

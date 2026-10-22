@@ -10,6 +10,7 @@ than marked secret.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 import chess
@@ -43,6 +44,16 @@ THREAT_MIN_MATERIAL = 1
 
 def color_name(color: chess.Color) -> str:
     return "White" if color == chess.WHITE else "Black"
+
+
+_SIDE = re.compile(r"\b(White|Black)\b(?=\s+(?:king|queen|rook|bishop|knight|pawn)s?\b|\s+pieces\b|:)")
+
+
+def tag_sides(text: str, student_color: chess.Color) -> str:
+    """Label every piece with whose it is: 'Black knight' -> 'Black (opponent) knight', 'White rook' ->
+    'White (student) rook'. With colours alone, Claude sometimes calls the opponent's pieces "your"."""
+    student = color_name(student_color)
+    return _SIDE.sub(lambda m: f"{m.group(1)} ({'student' if m.group(1) == student else 'opponent'})", text)
 
 
 def piece_label(board: chess.Board, square: chess.Square) -> str:
@@ -356,7 +367,7 @@ def fact_sheet(
 
     if grade.delivers_mate:
         lines.append("The move is checkmate. The game is over.")
-        return "\n".join(lines)
+        return tag_sides("\n".join(lines), student_color)
     if after_board.is_stalemate():
         lines.append("The move is stalemate, so the game is a draw.")
     elif after_board.is_insufficient_material():
@@ -386,7 +397,7 @@ def fact_sheet(
         lines += _student_move_facts(board, after_board, grade, before, after, reveal_best)
     else:
         lines += _opponent_move_facts(after_board, grade, after)
-    return "\n".join(lines)
+    return tag_sides("\n".join(lines), student_color)
 
 
 def _student_move_facts(

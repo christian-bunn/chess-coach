@@ -5,6 +5,7 @@ import chess.engine
 import pytest
 
 from app.engine import Analysis, Line
+from app.advice import threat_answer
 from app.guide import at_home, guide_facts, king_safety, plan, stage
 from tests.test_grading import board_after, fake_analysis
 
@@ -35,7 +36,8 @@ def test_threat_is_urgent():
     board = board_after("e4", "e5", "Qh5", "Nf6")  # the knight attacks the queen
     p = plan(board, fake_analysis(board, ("Qe2", Cp(0))), threat_line(board, "Nxh5", Cp(900)))
     assert p.topic == "threat" and p.urgent
-    assert p.template == "Watch out: your queen on h5 is under attack. Deal with that before anything else."
+    assert p.template == "Watch out: your queen on h5 is under attack. Find it a safe square."
+    assert "How the engine meets the threat: by moving the attacked queen on h5 to safety." in p.facts
 
 
 def test_a_mate_to_find_is_urgent():
@@ -73,3 +75,34 @@ def test_a_chance_and_a_threat_together():
     p = plan(board, Analysis(board.turn, Cp(150), (Line(Cp(150), line),)), threat_line(board, "Nxh5", Cp(900)))
     assert p.topic == "material"
     assert p.template.startswith("Your queen on h5 is under attack, but there's also a chance to win material.")
+
+
+def test_capturing_the_attacker():
+    # From a real game: Black's knight on f5 attacks the queen on e3, and the best answer is 18.gxf5,
+    # taking the knight. The coach used to say "move your queen out of danger".
+    board = chess.Board("1k1r3r/ppp3pp/4Ppq1/5n2/2B3P1/4QN2/PPPN2P1/R3K3 w - - 0 18")
+    p = plan(board, fake_analysis(board, ("gxf5", Cp(400))), threat_line(board, "Nxe3", Cp(900)))
+    assert ("How the engine meets the threat: by capturing the attacking piece itself, the opponent's knight "
+            "on f5. Moving the attacked piece away instead is not the best answer here.") in p.facts
+    assert p.template.startswith("Your queen on e3 is under attack, but don't just move it away")
+    # Something urgent: the template is the main point, and the quiet-position picture is left out.
+    text = guide_facts(board, p, None, chess.WHITE)
+    assert "MAIN POINT: Your queen on e3 is under attack, but don't just move it away" in text
+    assert "Open files" not in text and "starting squares" not in text
+
+
+def test_threat_answers():
+    # Black's knight on f5 attacks the queen on e3.
+    board = chess.Board("1k1r3r/ppp3pp/4Ppq1/5n2/2B3P1/4QN2/PPPN2P1/R3K3 w - - 0 18")
+    threat = threat_line(board, "Nxe3", Cp(900))
+    assert threat_answer(board, board.parse_san("gxf5"), threat)[0] == "capture"
+    assert threat_answer(board, board.parse_san("Qe4"), threat)[0] == "move"
+    # No real threat (nothing to win), so nothing to answer.
+    assert threat_answer(board, board.parse_san("gxf5"), threat_line(board, "a6", Cp(0))) is None
+
+
+def test_mate_beats_answering_the_threat():
+    # Black's knight on g3 attacks the rook on h1, but 6.Qxf7# ends the game.
+    board = chess.Board("r1bqkb1r/pppp1ppp/8/4p3/2B1P3/5Qn1/PPPP1PP1/RNB1K2R w KQkq - 1 6")
+    kind, text = threat_answer(board, board.parse_san("Qxf7#"), threat_line(board, "Nxh1", Cp(500)))
+    assert kind == "mate" and "checkmate" in text

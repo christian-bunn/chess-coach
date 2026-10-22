@@ -109,6 +109,16 @@ for the center, or bring your rooks to open files.
 The priority comes from the engine's best move, worked out in code (`backend/app/guide.py`). The move
 itself is never given to Claude, so the guidance points the way without giving away the answer.
 
+Some details keep the guidance accurate:
+- **Threats:** when something of yours is attacked, the facts say *how* the engine meets the threat:
+  capturing the attacker, moving the piece away, blocking, defending, a check, or a checkmate that makes
+  the threat irrelevant. So the coach won't tell you to save your queen when the better move is to take
+  the piece attacking it.
+- **One main point:** when something urgent is going on, the guidance is built around that one point,
+  and the quieter details (open files, undeveloped pieces) are left out.
+- **Whose piece is whose:** every piece in the facts Claude sees is labelled "(student)" or
+  "(opponent)", so it can't call the opponent's knight "your knight".
+
 ## How much the coach says
 
 By default the coach speaks up only at **key moments**, and every move still gets its grade badge.

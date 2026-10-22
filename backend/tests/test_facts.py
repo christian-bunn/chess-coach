@@ -5,7 +5,7 @@ import chess.engine
 
 from app.coach import describe_opponent_move, threat_warning
 from app.engine import Analysis, Line
-from app.facts import describe_move, fact_sheet, loose_pieces, why_bad
+from app.facts import describe_move, fact_sheet, loose_pieces, tag_sides, why_bad
 from app.grading import grade_move
 from tests.test_grading import board_after, fake_analysis, grade
 
@@ -183,3 +183,13 @@ class TestThreatWarning:
         board = board_after("e4", "e5", "Qh5", "Nc6", "Bc4")
         g = grade(board, "Nf6", fake_analysis(board, ("g6", Cp(-50))), Mate(1), reply="Qxf7#")
         assert describe_opponent_move(g, "Watch out: ...").startswith("Your opponent just blundered.")
+
+
+def test_pieces_are_labelled_with_their_owner():
+    # The student plays White; Claude once called Black's knight "your knight" when facts only gave colours.
+    text = "Black knight on g3 takes White rook on h1. Loose White pieces: White rook on h1. White: king e1. White's move."
+    assert tag_sides(text, chess.WHITE) == (
+        "Black (opponent) knight on g3 takes White (student) rook on h1. Loose White (student) pieces: "
+        "White (student) rook on h1. White (student): king e1. White's move."
+    )
+    assert tag_sides("White queen", chess.BLACK) == "White (opponent) queen"

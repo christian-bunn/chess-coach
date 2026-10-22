@@ -129,7 +129,7 @@ class TestPositionFacts:
         text = self.facts()
         assert "It is White's move (the student)." in text
         assert "Last move (the computer opponent): 3...Nf6" in text
-        assert "The engine's top moves for White: 4.Qxf7#" in text
+        assert "The engine's top moves for White (student): 4.Qxf7#" in text
 
     def test_best_moves_only_when_asked(self):
         assert "top moves" not in self.facts(show_best_moves=False)

@@ -11,9 +11,11 @@ from dataclasses import dataclass
 
 import chess
 
-from .advice import game_header, idea, idea_fact, threatened
+from .advice import game_header, idea, idea_fact, threat_answer, threatened
 from .engine import Analysis, Line
-from .facts import GRADE_LABELS, PIECE_NAMES, attacked_by, color_name, describe_move, describe_threat, loose_pieces
+from .facts import (
+    GRADE_LABELS, PIECE_NAMES, attacked_by, color_name, describe_move, describe_threat, loose_pieces, tag_sides,
+)
 from .grading import MoveGrade, numbered_san, win_percent
 
 # Topics the coach always speaks up about, even in "key moments" mode.
@@ -146,24 +148,36 @@ def plan(board: chess.Board, analysis: Analysis, threat: Line | None) -> Plan | 
     facts = [f"Stage of the game: {when}.", f"What matters most now, according to the engine: {priority}"]
     if threat_text:
         facts.append(threat_text)
-    facts.append(f"The student's king {king_safety(board, me)}; the opponent's king {king_safety(board, not me)}.")
-    if when != "endgame":
-        theirs = at_home(board, not me)
-        facts.append(
-            f"The student's knights and bishops still on their starting squares: {', '.join(home) or 'none'}. "
-            f"The opponent's: {', '.join(theirs) or 'none'}."
-        )
-    if files := open_files(board):
-        facts.append(f"Open files, with no pawns on them: {', '.join(files)}.")
+    answer = threat_answer(board, best, threat)
+    if answer:
+        facts.append(answer[1])
+    urgent = topic in URGENT
+    # The quiet-position picture only when nothing urgent is going on: with a threat or a chance on the
+    # board it's noise, and Claude drifts into general advice instead of the one thing that matters.
+    if not urgent:
+        facts.append(f"The student's king {king_safety(board, me)}; the opponent's king {king_safety(board, not me)}.")
+        if when != "endgame":
+            theirs = at_home(board, not me)
+            facts.append(
+                f"The student's knights and bishops still on their starting squares: {', '.join(home) or 'none'}. "
+                f"The opponent's: {', '.join(theirs) or 'none'}."
+            )
+        if files := open_files(board):
+            facts.append(f"Open files, with no pawns on them: {', '.join(files)}.")
     for color in (me, not me):
         if loose := loose_pieces(board, color):
             facts.append(f"Loose {color_name(color)} pieces: {'; '.join(loose)}.")
     facts.append(f"The engine thinks the student is {standing(win_percent(analysis.score))}.")
 
-    return Plan(topic, priority, topic in URGENT, facts, _template(topic, amount, target, home))
+    return Plan(topic, priority, urgent, facts, _template(topic, amount, target, home, answer and answer[0]))
 
 
-def _template(topic: str, amount: int, target: str | None, home: list[str]) -> str:
+def _template(topic: str, amount: int, target: str | None, home: list[str], answer: str | None = None) -> str:
+    if target and answer == "capture" and topic in ("threat", "material", "mate"):
+        extra = {"material": " That also wins material.", "mate": " There's even a forced checkmate."}.get(topic, "")
+        return f"Your {target} is under attack, but don't just move it away: see whether you can capture the attacker.{extra}"
+    if target and answer == "move" and topic == "threat":
+        return f"Watch out: your {target} is under attack. Find it a safe square."
     if topic in ("mate", "material") and target:
         # A chance and a threat at once: say both, so the attacked piece isn't forgotten.
         chance = "a forced checkmate" if topic == "mate" else "a chance to win material"
@@ -207,6 +221,9 @@ def guide_facts(board: chess.Board, the_plan: Plan, last: MoveGrade | None, stud
                          f"{chess.square_name(move.to_square)} attacks: {'; '.join(targets)}.")
     elif not board.move_stack:
         facts.append("This is the very start of the game.")
+    if the_plan.urgent:
+        # The built-in guidance is exactly right when something urgent is on: Claude says it in its own words.
+        facts.append(f"MAIN POINT: {the_plan.template}")
     facts += the_plan.facts
     facts.append("The move itself is deliberately not given here: the student should find it.")
-    return "\n".join(facts)
+    return tag_sides("\n".join(facts), student_color)

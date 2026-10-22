@@ -141,7 +141,7 @@ def test_explain_streams_claudes_comment_from_the_fact_sheet(client):
     events = explain(client, ["e2e4", "d7d5", "d1g4"], reveal_best=False)
     assert events[-1] == {"type": "done", "text": "Your queen is hanging.", "source": "claude"}
     facts = fake.calls[0]["messages"][0]["content"]
-    assert "2...Bxg4 (Black bishop on c8 takes White queen on g4)" in facts
+    assert "2...Bxg4 (Black (opponent) bishop on c8 takes White (student) queen on g4)" in facts
     # The best move (2.exd5) stays hidden while a retry is on offer.
     assert "2.exd5" not in facts and "preferred move" not in facts
 

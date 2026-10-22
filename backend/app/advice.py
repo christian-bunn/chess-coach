@@ -16,7 +16,7 @@ import chess.engine
 from .engine import Analysis, Line
 from .facts import (
     GRADE_LABELS, PIECE_NAMES, color_name, describe_line, describe_move, describe_threat, format_eval,
-    loose_pieces, material_phrase, piece_list,
+    loose_pieces, material_phrase, piece_list, tag_sides,
 )
 from .grading import Eval, MoveGrade, material_balance, material_change, numbered_san, win_percent
 
@@ -94,6 +94,48 @@ def threatened(board: chess.Board, threat: Line | None) -> str | None:
     return f"{PIECE_NAMES[target.piece_type]} on {chess.square_name(threat.move.to_square)}"
 
 
+def threat_answer(board: chess.Board, best: chess.Move, threat: Line | None) -> tuple[str, str] | None:
+    """How the engine's best move meets the opponent's threat, as (kind, sentence), without naming the move.
+
+    kind: "capture" (take the attacking piece), "move" (move the attacked piece away), "mate", "check" (a
+    check first), "defend", "block", or "ignore" (something stronger than defending). None when there's no
+    real threat (describe_threat), so there's nothing to answer.
+    Without this, Claude tends to assume "move the attacked piece", even when the answer is to take the attacker.
+    """
+    if threat is None or describe_threat(board, threat) is None:
+        return None
+    me = board.turn
+    passed = board.copy(stack=False)
+    passed.push(chess.Move.null())
+    attacker_sq, target_sq = threat.move.from_square, threat.move.to_square
+    attacker, target = passed.piece_at(attacker_sq), board.piece_at(target_sq)
+    if attacker is None:
+        return None
+    attacker_label = f"{PIECE_NAMES[attacker.piece_type]} on {chess.square_name(attacker_sq)}"
+    target_label = f"{PIECE_NAMES[target.piece_type]} on {chess.square_name(target_sq)}" if target else None
+    after = board.copy(stack=False)
+    after.push(best)
+    if best.to_square == attacker_sq:
+        return "capture", (
+            f"How the engine meets the threat: by capturing the attacking piece itself, the opponent's "
+            f"{attacker_label}. Moving the attacked piece away instead is not the best answer here."
+        )
+    if target_label and target.color == me and best.from_square == target_sq:
+        return "move", f"How the engine meets the threat: by moving the attacked {target_label} to safety."
+    if after.is_checkmate():
+        return "mate", "How the engine meets the threat: it doesn't need to, because the student can give checkmate."
+    if after.is_check():
+        return "check", "How the engine meets the threat: with a check first, which the opponent has to answer."
+    if target_label and target.color == me:
+        if not after.is_attacked_by(not me, target_sq):
+            return "block", f"How the engine meets the threat: by blocking the attack on the {target_label}."
+        if len(after.attackers(me, target_sq)) > len(board.attackers(me, target_sq)):
+            return "defend", f"How the engine meets the threat: by defending the {target_label}."
+    return "ignore", (
+        "How the engine meets the threat: it doesn't defend directly, because it has something stronger in mind."
+    )
+
+
 def idea_fact(kind: str, amount: int, target: str | None = None) -> str:
     """The engine's verdict on what matters most; `target` is what the opponent threatens ("pawn on d5")."""
     if kind == "concede" and target:
@@ -103,7 +145,7 @@ def idea_fact(kind: str, amount: int, target: str | None = None) -> str:
             f"Trying to hold on to the {target} is not what the engine recommends."
         )
     return {
-        "mate": f"The student has a forced checkmate in {amount}.",
+        "mate": f"The student has a forced checkmate in {amount} against the opponent's king.",
         "material": f"The student can win about {amount} point{'s' if amount != 1 else ''} of material (pawn = 1).",
         "defend": "The most important thing is dealing with the opponent's threat.",
         "concede": (
@@ -138,6 +180,9 @@ def hint(
         facts.append(idea_fact(kind, amount, threatened(board, threat)))
     if threat_text:
         facts.append(threat_text)
+    answer = threat_answer(board, best.move, threat)
+    if answer:
+        facts.append(answer[1])
     template = focus.template if quiet_focus else {
         "mate": ("There's checkmate in one here. Look at every check you can give." if amount == 1
                  else f"There's a forced checkmate in {amount} here. Start by looking at every check you can give."),
@@ -147,6 +192,8 @@ def hint(
                    "that develops a piece or improves your position the most.",
         "position": "There's no immediate tactic here. Find your least active piece and give it a better square.",
     }[kind]
+    if answer and answer[0] == "capture" and not quiet_focus:
+        template = "Something of yours is under attack. Before you move it away, see whether you can capture the attacker."
 
     if level >= 2:
         piece = board.piece_at(best.move.from_square)
@@ -180,7 +227,7 @@ def hint(
             "position": " It's the best way to improve your position.",
         }[kind]
 
-    return Hint("\n".join(facts), template, move, square)
+    return Hint(tag_sides("\n".join(facts), student_color), template, move, square)
 
 
 # ------------------------------------------------------------------------------------------- questions
@@ -312,6 +359,8 @@ def position_facts(
             facts.insert(len(game_header(board, student_color)), "ENGINE VERDICT (what matters most now): " + verdict)
             if threat_text:
                 facts.append(threat_text)
+            if answer := threat_answer(board, analysis.best.move, threat):
+                facts.append(answer[1])
         for color in (board.turn, not board.turn):
             if loose := loose_pieces(board, color):
                 facts.append(f"Loose {color_name(color)} pieces: {'; '.join(loose)}.")
@@ -332,4 +381,4 @@ def position_facts(
         )
     if not_legal:
         facts.append(f"Mentioned but not legal for {color_name(board.turn)} right now: {', '.join(not_legal)}.")
-    return "\n".join(facts)
+    return tag_sides("\n".join(facts), student_color)
