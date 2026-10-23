@@ -16,6 +16,10 @@ interface PuzzlePanelProps {
   onTryAgain: () => void
   onShowSolution: () => void
   onRemove: () => void
+  /** How many moves have been played on from the finished puzzle; taking one back, and going back to its start. */
+  explored: number
+  onUndoExplore: () => void
+  onResetExplore: () => void
 }
 
 /** "in 5 hours", "tomorrow", "in 3 days". */
@@ -38,6 +42,9 @@ export function PuzzlePanel({
   onTryAgain,
   onShowSolution,
   onRemove,
+  explored,
+  onUndoExplore,
+  onResetExplore,
 }: PuzzlePanelProps) {
   return (
     <section className="puzzles" aria-label="Puzzles from your mistakes">
@@ -60,6 +67,9 @@ export function PuzzlePanel({
             onTryAgain={onTryAgain}
             onShowSolution={onShowSolution}
             onRemove={onRemove}
+            explored={explored}
+            onUndoExplore={onUndoExplore}
+            onResetExplore={onResetExplore}
           />
         ) : loading ? (
           <p className="muted">Loading…</p>
@@ -100,6 +110,9 @@ function PuzzleCard({
   onTryAgain,
   onShowSolution,
   onRemove,
+  explored,
+  onUndoExplore,
+  onResetExplore,
 }: {
   puzzle: Puzzle
   status: PuzzleStatus
@@ -109,7 +122,11 @@ function PuzzleCard({
   onTryAgain: () => void
   onShowSolution: () => void
   onRemove: () => void
+  explored: number
+  onUndoExplore: () => void
+  onResetExplore: () => void
 }) {
+  const finished = status === 'right' || status === 'shown'
   const index = puzzle.moves.length
   const meta = GRADE_META[puzzle.grade]
   // An inaccuracy's comment ends by naming the better move, which would give the answer away.
@@ -145,10 +162,15 @@ function PuzzleCard({
             }[status]
           }
         </p>
-        {(status === 'right' || status === 'shown') && puzzle.comment && (
+        {finished && puzzle.comment && (
           <p className="muted">In the game: {puzzle.comment}</p>
         )}
         {schedule && <p className="muted">{schedule}</p>}
+        {finished && (
+          <p className="muted">
+            Play on with either side to explore the position. The evaluation bar follows along.
+          </p>
+        )}
         <div className="moment-actions">
           {(status === 'wrong' || status === 'error') && (
             <button className="primary" onClick={onTryAgain}>
@@ -156,10 +178,18 @@ function PuzzleCard({
             </button>
           )}
           {(status === 'thinking' || status === 'wrong') && <button onClick={onShowSolution}>Show solution</button>}
-          {(status === 'right' || status === 'shown') && (
-            <button className="primary" onClick={onNext}>
-              Next puzzle
-            </button>
+          {finished && (
+            <>
+              <button className="primary" onClick={onNext}>
+                Next puzzle
+              </button>
+              <button onClick={onUndoExplore} disabled={explored === 0} title="Take back the last move you explored">
+                ↶ Undo
+              </button>
+              <button onClick={onResetExplore} disabled={explored === 0} title="Back to the puzzle position">
+                Reset
+              </button>
+            </>
           )}
         </div>
       </div>

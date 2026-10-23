@@ -9,7 +9,8 @@ interface BoardProps {
   orientation: 'white' | 'black'
   /** True when the user may move (their turn, nothing pending). */
   interactive: boolean
-  userColor: 'w' | 'b'
+  /** Whose pieces the user moves: one side, or 'both' to play both sides (exploring after a puzzle). */
+  userColor: 'w' | 'b' | 'both'
   lastMove: { from: string; to: string } | null
   badge: { square: string; classification: Classification } | null
   arrows: Arrow[]
@@ -64,7 +65,8 @@ export function Board({
     return 'moved'
   }
 
-  const ownsPiece = (pieceType: string | undefined) => interactive && pieceType?.[0] === userColor
+  const mover = userColor === 'both' ? game.turn() : userColor
+  const ownsPiece = (pieceType: string | undefined) => interactive && pieceType?.[0] === mover
 
   const squareStyles: Record<string, CSSProperties> = {}
   const style = (square: string, extra: CSSProperties) => {
@@ -146,7 +148,7 @@ export function Board({
         <div className="promotion" role="dialog" aria-label="Choose a piece to promote to">
           <div className="promotion-choices">
             {(['q', 'r', 'b', 'n'] as const).map((piece) => {
-              const code = `${userColor}${piece.toUpperCase()}`
+              const code = `${mover}${piece.toUpperCase()}`
               return (
                 <button
                   key={piece}

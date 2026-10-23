@@ -1,6 +1,6 @@
 import { Chess } from 'chess.js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api, type Classification, type MoveGrade, type Puzzle, type PuzzleSummary } from './api'
+import { api, type Classification, type Eval, type MoveGrade, type Puzzle, type PuzzleSummary } from './api'
 
 /**
  * thinking: waiting for the student's move
@@ -16,6 +16,8 @@ export type PuzzleStatus = 'thinking' | 'grading' | 'right' | 'wrong' | 'shown' 
 export interface PuzzleBoard {
   game: Chess
   interactive: boolean
+  /** The student's side while solving; both sides once the puzzle is finished, to play on and explore. */
+  userColor: 'w' | 'b' | 'both'
   lastMove: { from: string; to: string } | null
   solution: { from: string; to: string } | null
   badge: { square: string; classification: Classification } | null
@@ -41,6 +43,9 @@ export function usePuzzles() {
   // The puzzle as rescheduled once its result is recorded (null until then).
   const [scheduled, setScheduled] = useState<Puzzle | null>(null)
   const [loading, setLoading] = useState(false)
+  // Moves played on from the puzzle once it's finished, for either side, and the evaluation where they lead.
+  const [explore, setExplore] = useState<string[]>([])
+  const [evaluation, setEvaluation] = useState<Eval | null>(null)
   const recorded = useRef(false)
   const pending = useRef<AbortController | null>(null)
 
@@ -57,6 +62,7 @@ export function usePuzzles() {
     setTried(null)
     setAttempt(null)
     setScheduled(null)
+    setExplore([])
   }
 
   /** Load the next due puzzle (with `early`, the soonest one even if it isn't due yet). */
@@ -81,7 +87,14 @@ export function usePuzzles() {
     }, () => {})
   }
 
+  // Solved, or the solution shown: from here the board is free to play on.
+  const finished = status === 'right' || status === 'shown'
+
   const play = async (uci: string) => {
+    if (finished) {
+      setExplore((moves) => [...moves, uci])
+      return
+    }
     if (!puzzle || status !== 'thinking') return
     const controller = new AbortController()
     pending.current = controller
@@ -109,6 +122,7 @@ export function usePuzzles() {
 
   const showSolution = () => {
     pending.current?.abort()
+    setExplore([])
     setTried(null)
     setAttempt(null)
     setStatus('shown')
@@ -121,20 +135,38 @@ export function usePuzzles() {
     await load()
   }
 
+  // The moves on the board: the puzzle position, the move tried, and anything played on after it.
+  const moves = useMemo(() => (puzzle ? [...puzzle.moves, ...(tried ? [tried] : []), ...explore] : []), [puzzle, tried, explore])
+
+  // While exploring, the eval bar follows the position (it stays hidden while solving).
+  useEffect(() => {
+    setEvaluation(null)
+    if (!finished || moves.length === 0) return
+    const controller = new AbortController()
+    api.analyze(moves, controller.signal).then((a) => setEvaluation(a.eval), () => {})
+    return () => controller.abort()
+  }, [finished, moves])
+
   const board = useMemo((): PuzzleBoard | null => {
     if (!puzzle) return null
-    const game = gameFrom(puzzle.moves)
-    const previous = puzzle.moves.at(-1)
-    if (tried) game.move({ from: tried.slice(0, 2), to: tried.slice(2, 4), promotion: tried[4] })
-    const last = tried ?? previous
+    const last = moves.at(-1)
+    const untouched = explore.length === 0
     return {
-      game,
-      interactive: status === 'thinking',
+      game: gameFrom(moves),
+      interactive: status === 'thinking' || finished,
+      userColor: finished ? 'both' : puzzle.color === 'white' ? 'w' : 'b',
       lastMove: last ? { from: last.slice(0, 2), to: last.slice(2, 4) } : null,
-      solution: status === 'shown' ? { from: puzzle.best.slice(0, 2), to: puzzle.best.slice(2, 4) } : null,
-      badge: attempt ? { square: attempt.uci.slice(2, 4), classification: attempt.classification } : null,
+      solution: status === 'shown' && untouched ? { from: puzzle.best.slice(0, 2), to: puzzle.best.slice(2, 4) } : null,
+      badge: attempt && untouched ? { square: attempt.uci.slice(2, 4), classification: attempt.classification } : null,
     }
-  }, [puzzle, tried, attempt, status])
+  }, [puzzle, moves, explore, attempt, status, finished])
 
-  return { summary, puzzle, status, attempt, scheduled, loading, board, refresh, load, play, tryAgain, showSolution, remove }
+  return {
+    summary, puzzle, status, attempt, scheduled, loading, board, refresh, load, play, tryAgain, showSolution, remove,
+    /** Playing on from a finished puzzle: the moves so far, taking one back, and going back to the start. */
+    explore,
+    undoExplore: () => setExplore((moves) => moves.slice(0, -1)),
+    resetExplore: () => setExplore([]),
+    evaluation,
+  }
 }

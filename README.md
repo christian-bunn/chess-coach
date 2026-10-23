@@ -152,6 +152,9 @@ them; the number on it is how many are due. Your game waits while you do puzzles
   sets the schedule.
 - **No giveaways:** the eval bar is hidden while you solve, since it would show whether there's something to
   find.
+- **Play on:** once a puzzle is finished (solved, or the solution shown), you can move both White's and Black's
+  pieces to explore the position, with the eval bar following along. **↶ Undo** takes back a move, and
+  **Reset** goes back to the puzzle.
 - **Repeats:** making the same mistake in the same position in another game doesn't add a second puzzle; it
   starts that puzzle's schedule over.
 - **Nothing due:** **Do one early** brings forward the one due soonest. **Remove this puzzle** deletes one.

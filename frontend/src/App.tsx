@@ -165,13 +165,17 @@ export default function App() {
       game: puzzleBoard?.game ?? new Chess(),
       orientation: flipped ? (color === 'white' ? 'black' : 'white') : color,
       interactive: puzzleBoard?.interactive ?? false,
-      userColor: color === 'white' ? 'w' : 'b',
+      userColor: puzzleBoard?.userColor ?? (color === 'white' ? 'w' : 'b'),
       lastMove: puzzleBoard?.lastMove ?? null,
       badge: puzzleBoard?.badge ?? null,
       arrows: puzzleBoard?.solution
         ? [{ startSquare: puzzleBoard.solution.from, endSquare: puzzleBoard.solution.to, color: BEST_ARROW }]
         : [],
       onMove: (uci) => void puzzles.play(uci),
+      caption:
+        puzzles.explore.length > 0 && puzzleBoard
+          ? `Exploring · ${puzzleBoard.game.turn() === 'w' ? 'White' : 'Black'} to move`
+          : undefined,
     }
   } else if (practiceBoard) {
     view = {
@@ -250,9 +254,16 @@ export default function App() {
       </header>
       <main>
         <div className="board-area">
-          {/* No evaluation during puzzles or an unassisted game: it would give away whether there's something to find. */}
+          {/* No evaluation while solving a puzzle or during an unassisted game: it would give away whether there's
+              something to find. (Once a puzzle is finished, it follows the position you explore.) */}
           <EvalBar
-            evaluation={puzzleMode || phase === 'setup' || coach.helpHidden ? null : (reviewEvaluation ?? evaluation)}
+            evaluation={
+              puzzleMode
+                ? puzzles.evaluation
+                : phase === 'setup' || coach.helpHidden
+                  ? null
+                  : (reviewEvaluation ?? evaluation)
+            }
             orientation={view.orientation}
           />
           <Board {...view} animate={!instant} />
@@ -278,6 +289,9 @@ export default function App() {
               onTryAgain={puzzles.tryAgain}
               onShowSolution={puzzles.showSolution}
               onRemove={() => void puzzles.remove()}
+              explored={puzzles.explore.length}
+              onUndoExplore={puzzles.undoExplore}
+              onResetExplore={puzzles.resetExplore}
             />
           ) : settingUp ? (
             levels.length > 0 ? (
