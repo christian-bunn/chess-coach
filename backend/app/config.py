@@ -56,6 +56,7 @@ class Settings:
     hash_mb: int
     voices_dir: Path | None  # Piper voice models for the coach's speech; None turns speech off
     voice: str | None  # the default voice's name; None picks one
+    progress_dir: Path  # the student's own data, such as their puzzles (git-ignored)
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -71,4 +72,5 @@ class Settings:
             # $COACH_VOICE: "off", or the name of the default voice (one of the models in ./voices).
             voices_dir=None if os.environ.get("COACH_VOICE") == "off" else PROJECT_ROOT / "voices",
             voice=os.environ.get("COACH_VOICE") or None,
+            progress_dir=Path(os.environ.get("COACH_PROGRESS_DIR") or PROJECT_ROOT / "progress"),
         )

@@ -3,7 +3,7 @@
 Play chess against Stockfish while a coach grades every move you make, the way chess.com's coach does.
 If you blunder or miss a win (a checkmate, say), the coach stops and offers to let you take the move back
 and try again. When you're stuck, ask for a hint. After the game, a review shows your accuracy and lets you
-replay your mistakes.
+replay your mistakes, and your mistakes come back as puzzles over the following days until you've learned them.
 
 **Design rule:** the engine decides what's true, and the coach only puts it into words. Stockfish does all the
 chess, and code turns its analysis into short sentences. Nothing is guessed: every comment and hint restates
@@ -130,6 +130,26 @@ opens it at any point during the game too.
   again or ask for the best move. This doesn't change the game itself: **← Back to the game** returns to it
   as it was.
 
+## Learn from your mistakes
+
+Every mistake, missed win and blunder you make in a game, and every missed mate, is saved as a puzzle: the
+position just before your move, with your move and the engine's. **🧩 Puzzles** in the top right switches to
+them; the number on it is how many are due. Your game waits while you do puzzles, and **♟ Play** takes you back.
+
+- **Spaced repetition:** a new puzzle comes back the next day. Each time you find the move at the first try,
+  the gap grows: 3 days, a week, two weeks, a month, two months, four months. A wrong first try, or asking for
+  the solution, brings it back the next day. After four first-try solves in a row it counts as mastered.
+- **Solving:** a move counts if it's as good as the engine's or nearly (best, great, excellent, or book). A
+  wrong try shows its grade and the reason, and you can try again or see the solution. Only your first answer
+  sets the schedule.
+- **No giveaways:** the eval bar is hidden while you solve, since it would show whether there's something to
+  find.
+- **Repeats:** making the same mistake in the same position in another game doesn't add a second puzzle; it
+  starts that puzzle's schedule over.
+- **Nothing due:** **Do one early** brings forward the one due soonest. **Remove this puzzle** deletes one.
+- **Where they're kept:** `progress/puzzles.json` in the project folder (git-ignored), so they last across
+  games and browsers. Set `COACH_PROGRESS_DIR` to keep them somewhere else.
+
 ## Run
 
 ```bash
@@ -151,6 +171,9 @@ cd backend && .venv/bin/python -m pytest
 - `tests/test_advice.py` checks what each hint level reveals.
 - `tests/test_guide.py` checks the hints' priority for a position: the right topic, threats and checks met
   the way the engine meets them, and never the move itself.
+- `tests/test_openings.py` checks opening names and book moves, including transpositions and the traps in
+  the list.
+- `tests/test_puzzles.py` checks the puzzle schedule (with a fake clock), repeats, and saving to disk.
 
 ## How moves are graded
 
@@ -193,7 +216,7 @@ Thresholds are constants at the top of `backend/app/grading.py`.
 ```
 backend/app/
   main.py      FastAPI routes: /api/levels, /api/config, /api/analyze, /api/grade, /api/bot-move,
-               /api/hint, /api/speech, /api/voices
+               /api/hint, /api/puzzles..., /api/speech, /api/voices
   engine.py    Two Stockfish processes (analysis + opponent), position cache, null-move threat search
   grading.py   win%, material counting, classification -> MoveGrade
   facts.py     Why a bad move is bad, and whether a threat is real, from the engine's lines
@@ -202,6 +225,7 @@ backend/app/
   guide.py     What matters in a position, for the 💡 Hint
   speech.py    The coach's voice: text to speech with Piper
   openings.py  Opening names and book moves, from Lichess's openings list
+  puzzles.py   Puzzles from your mistakes, with spaced repetition
   levels.py    Opponent strength presets
   config.py    Settings from env vars (COACH_ANALYSIS_DEPTH, COACH_ENGINE_THREADS, ...)
 backend/data/openings/  Lichess's openings list (a.tsv ... e.tsv: ECO code, name, moves)
@@ -209,9 +233,10 @@ frontend/src/
   useCoachGame.ts       Game state: turns, grading, retry / take-back flow, hints, key moments
   review.ts             Game review: accuracy, grade counts, key moments
   useReviewPractice.ts  Retrying a move from the review without touching the game
+  usePuzzles.ts         Puzzles from your mistakes: the current one, your tries, and its schedule
   voice.ts              Playing the coach's voice, with notation turned into words
   moveRefs.ts           Finding the moves a coach message mentions, so they can be shown on the board
-  components/           Board, EvalBar, CoachPanel, GameReview, MoveList, NewGame
+  components/           Board, EvalBar, CoachPanel, GameReview, PuzzlePanel, MoveList, NewGame
 ```
 
 The API is stateless. The client sends the whole move list (UCI, starting from the initial position) with every
@@ -224,7 +249,8 @@ request, and the server caches analysis by position.
 3. ~~Hints that reveal a little more each time~~ (guidance before every move was tried, then dropped)
 4. ~~Game review: accuracy, grade counts, eval graph, and retrying your mistakes~~
 5. ~~Opening names and book moves~~
-6. Saved games, and puzzles from your own mistakes
+6. ~~Puzzles from your own mistakes, with spaced repetition~~
+7. Saved games
 
 The opening names come from [lichess-org/chess-openings](https://github.com/lichess-org/chess-openings),
 which is in the public domain (CC0).

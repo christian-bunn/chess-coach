@@ -1,5 +1,5 @@
 import { Chess } from 'chess.js'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ComponentProps } from 'react'
 import { api, type CoachConfig, type Eval, type Level, type VoiceOption } from './api'
 import { Board } from './components/Board'
 import { CoachPanel } from './components/CoachPanel'
@@ -7,9 +7,11 @@ import { EvalBar } from './components/EvalBar'
 import { GameReview } from './components/GameReview'
 import { MoveList } from './components/MoveList'
 import { NewGame } from './components/NewGame'
+import { PuzzlePanel } from './components/PuzzlePanel'
 import type { BoardPreview } from './moveRefs'
 import { openingOf, previewMove } from './review'
 import { useCoachGame, type CoachMode, type RetryMode } from './useCoachGame'
+import { usePuzzles } from './usePuzzles'
 import { useReviewPractice } from './useReviewPractice'
 import { canSpeak, setServerVoice, setVoiceName, speak, stopSpeaking } from './voice'
 
@@ -29,7 +31,11 @@ function savedVoice(): string | null {
 
 export default function App() {
   const [config, setConfig] = useState<CoachConfig>({ voice: false })
-  const coach = useCoachGame()
+  const puzzles = usePuzzles()
+  const coach = useCoachGame(puzzles.refresh)
+  // Playing a game, or doing puzzles from your mistakes (the game waits meanwhile).
+  const [mode, setMode] = useState<'play' | 'puzzles'>('play')
+  const puzzleMode = mode === 'puzzles'
   const { phase, plies, userColor, actions } = coach
   const [levels, setLevels] = useState<Level[]>([])
   const [backendError, setBackendError] = useState<string | null>(null)
@@ -69,6 +75,14 @@ export default function App() {
     practice.stop()
     setInstant(true)
     actions.closeReview()
+  }
+  const switchMode = (next: 'play' | 'puzzles') => {
+    if (next === mode) return
+    stopSpeaking()
+    setPreview(null)
+    setInstant(true)
+    setMode(next)
+    if (next === 'puzzles' && !puzzles.puzzle) void puzzles.load()
   }
   const shown = review ? (practiceBoard ? null : reviewPreview) : preview
   const shownGame = useMemo(() => (shown ? new Chess(shown.fen) : null), [shown])
@@ -112,7 +126,7 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return
-      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+      if ((e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') || puzzleMode) return
       if (review) {
         if (practice.practice) return
         const step = e.key === 'ArrowLeft' ? -1 : 1
@@ -142,74 +156,103 @@ export default function App() {
   const settingUp = phase === 'setup' || showSetup
   const opening = useMemo(() => openingOf(plies), [plies])
 
+  // What the board shows: a puzzle, a move being retried from the review, a move being previewed, or the game.
+  let view: ComponentProps<typeof Board>
+  const puzzleBoard = puzzleMode ? puzzles.board : null
+  if (puzzleMode) {
+    const color = puzzles.puzzle?.color ?? 'white'
+    view = {
+      game: puzzleBoard?.game ?? new Chess(),
+      orientation: flipped ? (color === 'white' ? 'black' : 'white') : color,
+      interactive: puzzleBoard?.interactive ?? false,
+      userColor: color === 'white' ? 'w' : 'b',
+      lastMove: puzzleBoard?.lastMove ?? null,
+      badge: puzzleBoard?.badge ?? null,
+      arrows: puzzleBoard?.solution
+        ? [{ startSquare: puzzleBoard.solution.from, endSquare: puzzleBoard.solution.to, color: BEST_ARROW }]
+        : [],
+      onMove: (uci) => void puzzles.play(uci),
+    }
+  } else if (practiceBoard) {
+    view = {
+      game: practiceBoard.game,
+      orientation,
+      interactive: practiceBoard.interactive,
+      userColor: userChar,
+      lastMove: practiceBoard.lastMove,
+      badge: practiceBoard.badge,
+      arrows: practiceBoard.best
+        ? [{ startSquare: practiceBoard.best.from, endSquare: practiceBoard.best.to, color: BEST_ARROW }]
+        : [],
+      onMove: (uci) => void practice.play(uci),
+      caption: practiceBoard.caption,
+    }
+  } else if (shown && shownGame) {
+    view = {
+      game: shownGame,
+      orientation,
+      interactive: false,
+      userColor: userChar,
+      lastMove: { from: shown.from, to: shown.to },
+      badge: shown.badge ? { square: shown.to, classification: shown.badge } : null,
+      arrows: [
+        ...(shown.played ? [] : [{ startSquare: shown.from, endSquare: shown.to, color: MOVE_ARROW }]),
+        ...(shown.best ? [{ startSquare: shown.best.from, endSquare: shown.best.to, color: BEST_ARROW }] : []),
+      ],
+      onMove: () => {},
+      caption: shown.label,
+    }
+  } else {
+    view = {
+      game: coach.game,
+      orientation,
+      interactive: !review && !settingUp && phase === 'user' && coach.game.turn() === userChar,
+      userColor: userChar,
+      lastMove: last ? { from: last.uci.slice(0, 2), to: last.uci.slice(2, 4) } : null,
+      badge: last?.grade ? { square: last.uci.slice(2, 4), classification: last.grade.classification } : null,
+      arrows:
+        coach.hintArrow && !review
+          ? [{ startSquare: coach.hintArrow.from, endSquare: coach.hintArrow.to, color: BEST_ARROW }]
+          : [],
+      onMove: actions.playMove,
+      highlight: review ? null : coach.pieceHint,
+    }
+  }
+
   return (
     <div className="app">
       <header>
         <h1>
           <span aria-hidden>♞</span> Chess Coach
         </h1>
-        {coach.level && phase !== 'setup' && (
+        {!puzzleMode && coach.level && phase !== 'setup' && (
           <span className="muted">
             vs {coach.level.name} (~{coach.level.elo}) · you play {userColor}
           </span>
         )}
-        {opening && phase !== 'setup' && (
+        {!puzzleMode && opening && phase !== 'setup' && (
           <span className="opening-name" title={`${opening.eco ?? ''} ${opening.name}`.trim()}>
             📖 {opening.name}
           </span>
         )}
+        <nav className="mode-switch" aria-label="Mode">
+          <button className={puzzleMode ? '' : 'active'} onClick={() => switchMode('play')} aria-pressed={!puzzleMode}>
+            ♟ Play
+          </button>
+          <button className={puzzleMode ? 'active' : ''} onClick={() => switchMode('puzzles')} aria-pressed={puzzleMode}>
+            🧩 Puzzles
+            {!!puzzles.summary?.due && <span className="count">{puzzles.summary.due}</span>}
+          </button>
+        </nav>
       </header>
       <main>
         <div className="board-area">
-          <EvalBar evaluation={phase === 'setup' ? null : (reviewEvaluation ?? evaluation)} orientation={orientation} />
-          <Board
-            game={practiceBoard?.game ?? shownGame ?? coach.game}
-            orientation={orientation}
-            interactive={
-              practiceBoard
-                ? practiceBoard.interactive
-                : !shown && !review && !settingUp && phase === 'user' && coach.game.turn() === userChar
-            }
-            userColor={userChar}
-            lastMove={
-              practiceBoard
-                ? practiceBoard.lastMove
-                : shown
-                  ? { from: shown.from, to: shown.to }
-                  : last
-                    ? { from: last.uci.slice(0, 2), to: last.uci.slice(2, 4) }
-                    : null
-            }
-            badge={
-              practiceBoard
-                ? practiceBoard.badge
-                : shown
-                  ? shown.badge
-                    ? { square: shown.to, classification: shown.badge }
-                    : null
-                  : last?.grade
-                    ? { square: last.uci.slice(2, 4), classification: last.grade.classification }
-                    : null
-            }
-            arrows={
-              practiceBoard
-                ? practiceBoard.best
-                  ? [{ startSquare: practiceBoard.best.from, endSquare: practiceBoard.best.to, color: BEST_ARROW }]
-                  : []
-                : shown
-                  ? [
-                      ...(shown.played ? [] : [{ startSquare: shown.from, endSquare: shown.to, color: MOVE_ARROW }]),
-                      ...(shown.best ? [{ startSquare: shown.best.from, endSquare: shown.best.to, color: BEST_ARROW }] : []),
-                    ]
-                  : coach.hintArrow && !review
-                    ? [{ startSquare: coach.hintArrow.from, endSquare: coach.hintArrow.to, color: BEST_ARROW }]
-                    : []
-            }
-            onMove={practiceBoard ? (uci) => void practice.play(uci) : actions.playMove}
-            caption={practiceBoard?.caption ?? shown?.label}
-            highlight={shown || review ? null : coach.pieceHint}
-            animate={!instant}
+          {/* No evaluation during puzzles: it would give away whether there's something to find. */}
+          <EvalBar
+            evaluation={puzzleMode || phase === 'setup' ? null : (reviewEvaluation ?? evaluation)}
+            orientation={view.orientation}
           />
+          <Board {...view} animate={!instant} />
         </div>
         <aside className="side">
           {backendError ? (
@@ -220,6 +263,19 @@ export default function App() {
                 folder, then reload this page.
               </p>
             </section>
+          ) : puzzleMode ? (
+            <PuzzlePanel
+              summary={puzzles.summary}
+              puzzle={puzzles.puzzle}
+              status={puzzles.status}
+              attempt={puzzles.attempt}
+              scheduled={puzzles.scheduled}
+              loading={puzzles.loading}
+              onStart={(early) => void puzzles.load(early)}
+              onTryAgain={puzzles.tryAgain}
+              onShowSolution={puzzles.showSolution}
+              onRemove={() => void puzzles.remove()}
+            />
           ) : settingUp ? (
             levels.length > 0 ? (
               <NewGame

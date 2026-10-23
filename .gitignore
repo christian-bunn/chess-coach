@@ -7,6 +7,9 @@
 # Local settings (.env)
 .env
 
+# Your puzzles and other progress
+/progress/
+
 # Python
 __pycache__/
 *.pyc

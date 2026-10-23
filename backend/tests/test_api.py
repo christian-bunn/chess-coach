@@ -8,6 +8,7 @@ from app.config import find_stockfish
 from app.grading import grade_move
 from app.levels import LEVELS
 from app.main import app
+from app.puzzles import PuzzleStore
 
 try:
     find_stockfish()
@@ -176,3 +177,30 @@ def test_speech_returns_audio(client):
         assert client.post("/api/speech", json={"text": "Hi", "voice": "en_US-nobody"}).status_code == 400
     finally:
         client.app.state.speech = real
+
+
+def test_puzzles_from_mistakes(client, tmp_path):
+    client.app.state.puzzles = PuzzleStore(tmp_path / "puzzles.json")
+    # A good move isn't saved; hanging the queen is.
+    assert client.post("/api/puzzles", json={"moves": ["e2e4"]}).json() == {"saved": False, "id": None}
+    saved = client.post("/api/puzzles", json={"moves": ["e2e4", "d7d5", "d1g4"]}).json()
+    assert saved["saved"]
+    summary = client.get("/api/puzzles").json()
+    assert summary["total"] == 1 and summary["due"] == 0  # back tomorrow
+    assert client.get("/api/puzzles/next").json() is None
+    puzzle = client.get("/api/puzzles/next", params={"early": True}).json()
+    assert puzzle["id"] == saved["id"] and puzzle["moves"] == ["e2e4", "d7d5"] and puzzle["color"] == "white"
+    assert puzzle["played_san"] == "Qg4" and puzzle["grade"] == "blunder"
+    assert puzzle["comment"] == "Blunder! 2.Qg4 puts your queen on g4, and 2...Bxg4 takes it."
+
+    pid = puzzle["id"]
+    wrong = client.post(f"/api/puzzles/{pid}/attempt", json={"uci": "d1g4"}).json()
+    assert not wrong["correct"] and wrong["grade"]["classification"] == "blunder"
+    right = client.post(f"/api/puzzles/{pid}/attempt", json={"uci": "e4d5"}).json()
+    assert right["correct"]
+    assert client.post(f"/api/puzzles/{pid}/attempt", json={"uci": "e2e5"}).status_code == 400
+
+    after = client.post(f"/api/puzzles/{pid}/result", json={"solved": True}).json()
+    assert after["streak"] == 1 and after["reviews"] == 1
+    assert client.delete(f"/api/puzzles/{pid}").json() == {"removed": True}
+    assert client.post(f"/api/puzzles/{pid}/result", json={"solved": True}).status_code == 404

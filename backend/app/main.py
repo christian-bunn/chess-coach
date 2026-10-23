@@ -24,9 +24,10 @@ from .coach import describe_user_move
 from .config import Settings
 from .engine import EngineService
 from .guide import plan
-from .grading import Eval, MoveGrade, grade_move, san_line
+from .grading import RETRY_CLASSIFICATIONS, Eval, MoveGrade, grade_move, san_line
 from .levels import DEFAULT_LEVEL, LEVELS, LEVELS_BY_ID
 from .openings import load as load_openings, mark_book
+from .puzzles import Puzzle, PuzzleStore
 from .speech import MAX_TEXT, Speech, voice_label
 
 log = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ async def lifespan(app: FastAPI):
     await engines.start()
     app.state.engines = engines
     await asyncio.to_thread(load_openings)
+    app.state.puzzles = PuzzleStore(settings.progress_dir / "puzzles.json")
     speech = Speech(settings.voices_dir, settings.voice)
     speech.start()
     app.state.speech = speech
@@ -63,6 +65,14 @@ class BotMoveIn(MovesIn):
 class HintIn(MovesIn):
     student_color: Literal["white", "black"]
     level: int = Field(1, ge=1, le=HINT_LEVELS)
+
+
+class AttemptIn(BaseModel):
+    uci: str = Field(min_length=4, max_length=5)
+
+
+class ResultIn(BaseModel):
+    solved: bool  # found at the first try, without asking for the solution
 
 
 class SpeechIn(BaseModel):
@@ -97,6 +107,16 @@ class HintOut:
     text: str
     square: str | None  # the piece to move (level 2 on), highlighted on the board
     move: str | None  # UCI of the move (level 3), shown as an arrow
+
+
+@dataclass
+class AttemptOut:
+    grade: MoveGrade
+    correct: bool
+
+
+# A puzzle counts as solved by a move as good as the engine's, or nearly.
+SOLVED_GRADES = frozenset({"best", "great", "excellent", "book"})
 
 
 def _engines(request: Request) -> EngineService:
@@ -224,3 +244,84 @@ async def hint_endpoint(body: HintIn, request: Request) -> HintOut:
     threat = await engines.threat(board)
     result = hint(board, analysis, threat, body.level, plan(board, analysis, threat))
     return HintOut(result.text, result.square, result.move)
+
+
+# ------------------------------------------------------------------------------------- puzzles
+
+
+def _puzzles(request: Request) -> PuzzleStore:
+    return request.app.state.puzzles
+
+
+def _puzzle(request: Request, pid: str) -> Puzzle:
+    puzzle = _puzzles(request).get(pid)
+    if puzzle is None:
+        raise HTTPException(404, "No such puzzle")
+    return puzzle
+
+
+@app.get("/api/puzzles")
+async def puzzles_summary(request: Request) -> dict:
+    """How many puzzles are saved, due now and mastered, and when the next one is due."""
+    return _puzzles(request).summary()
+
+
+@app.get("/api/puzzles/next")
+async def next_puzzle(request: Request, early: bool = False) -> Puzzle | None:
+    """The puzzle to do now: the one due longest ago. With `early`, the one due soonest if none is due."""
+    return _puzzles(request).next(early)
+
+
+@app.post("/api/puzzles")
+async def save_puzzle(body: MovesIn, request: Request) -> dict:
+    """Save the last move in `moves` (the student's) as a puzzle if it was a mistake, a missed win or a blunder,
+    or missed a mate. The puzzle is the position before it."""
+    if not body.moves:
+        raise HTTPException(400, "No move to save")
+    board = _replay(body.moves[:-1])
+    move = _replay(body.moves).peek()
+    grade = await _grade(_engines(request), board, move)
+    if not (grade.classification in RETRY_CLASSIFICATIONS or grade.missed_mate_in) or not grade.best_move:
+        return {"saved": False, "id": None}
+    puzzle = _puzzles(request).add(
+        board.epd(),
+        moves=body.moves[:-1],
+        color="white" if board.turn == chess.WHITE else "black",
+        played=move.uci(),
+        played_san=board.san(move),
+        best=grade.best_move,
+        best_san=grade.best_san,
+        grade=grade.classification,
+        comment=describe_user_move(grade, board),
+        opening=grade.opening,
+    )
+    return {"saved": True, "id": puzzle.id}
+
+
+@app.post("/api/puzzles/{pid}/attempt")
+async def attempt_puzzle(pid: str, body: AttemptIn, request: Request) -> AttemptOut:
+    """Grade a move tried on a puzzle, with the coach's comment, and whether it solves it."""
+    board = _replay(_puzzle(request, pid).moves)
+    try:
+        move = chess.Move.from_uci(body.uci)
+    except ValueError:
+        raise HTTPException(400, f"Not a move: {body.uci!r}")
+    if move not in board.legal_moves:
+        raise HTTPException(400, f"{body.uci} isn't legal here")
+    grade = await _grade(_engines(request), board, move)
+    grade.message = describe_user_move(grade, board)
+    return AttemptOut(grade, grade.classification in SOLVED_GRADES or grade.delivers_mate)
+
+
+@app.post("/api/puzzles/{pid}/result")
+async def puzzle_result(pid: str, body: ResultIn, request: Request) -> Puzzle:
+    """Record a review (once per puzzle shown), which sets when the puzzle comes back."""
+    _puzzle(request, pid)
+    return _puzzles(request).record(pid, body.solved)
+
+
+@app.delete("/api/puzzles/{pid}")
+async def remove_puzzle(pid: str, request: Request) -> dict:
+    _puzzle(request, pid)
+    _puzzles(request).remove(pid)
+    return {"removed": True}

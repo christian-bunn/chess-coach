@@ -100,6 +100,9 @@ function saveSetting(key: string, value: string) {
   }
 }
 
+// The student's moves that become puzzles to practise later (the backend makes sure).
+const PUZZLE_GRADES: ReadonlySet<Classification> = new Set(['mistake', 'miss', 'blunder'])
+
 // Moves of the student's that the coach always comments on (and reads aloud), even in 'key' mode.
 const KEY_GRADES: ReadonlySet<Classification> = new Set(['great', 'mistake', 'miss', 'blunder'])
 
@@ -180,7 +183,8 @@ const INITIAL: GameState = {
   reviewOpen: false,
 }
 
-export function useCoachGame() {
+/** `onPuzzleSaved`: called when one of the student's moves has been saved as a puzzle. */
+export function useCoachGame(onPuzzleSaved?: () => void) {
   const [state, setState] = useState<GameState>(() => ({
     ...INITIAL,
     retryMode: loadSetting(SETTING_KEYS.retryMode, ['mistakes', 'blunders', 'off'], 'mistakes'),
@@ -204,6 +208,8 @@ export function useCoachGame() {
   // Hints and guidance being fetched. Only a new game cancels them: after a take-back, a hint that
   // arrives late is still posted (though it isn't shown on the board any more).
   const replies = useRef(new AbortController())
+  const onPuzzleSavedRef = useRef(onPuzzleSaved)
+  onPuzzleSavedRef.current = onPuzzleSaved
 
   /** Read message `id` aloud if it's meant to be and the voice is on. */
   const announce = (id: number) => {
@@ -310,6 +316,10 @@ export function useCoachGame() {
         pendingRetry: offerRetry ? grade : null,
       }))
       if (note) announce(note.id)
+      // Mistakes come back later as puzzles. Not while retrying: the position is saved already.
+      if ((PUZZLE_GRADES.has(grade.classification) || grade.missed_mate_in !== null) && retryingPly === null) {
+        api.puzzles.save(plies.map((p) => p.uci)).then((r) => r.saved && onPuzzleSavedRef.current?.(), () => {})
+      }
       if (!offerRetry) continueGame()
     } catch (error) {
       if (!signal.aborted) fail(error, 'grade')
