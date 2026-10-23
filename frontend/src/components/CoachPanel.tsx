@@ -21,6 +21,8 @@ interface CoachPanelProps {
   /** Open the game review: from the hint row at any time, and offered when the game is over. */
   canReview: boolean
   onReview: () => void
+  /** False in an unassisted game: no hint buttons. */
+  assisted: boolean
   /** Show a move mentioned in a message on the board (null: back to the game). */
   onPreview: (move: MoveRef | null) => void
 }
@@ -47,6 +49,7 @@ export function CoachPanel({
   onPiece,
   canReview,
   onReview,
+  assisted,
   onPreview,
 }: CoachPanelProps) {
   const feed = useRef<HTMLDivElement>(null)
@@ -115,22 +118,24 @@ export function CoachPanel({
           </button>
         </div>
       )}
-      <div className="hint-row">
-        <button type="button" onClick={onIdea} disabled={!canIdea} title="A nudge toward the idea, without giving the move">
-          💡 Hint
-        </button>
-        <button
-          type="button"
-          onClick={onPiece}
-          disabled={!canPiece}
-          title={pieceStep === 0 ? 'Highlight the piece to move' : 'Show where the piece goes'}
-        >
-          {pieceStep === 0 ? '♟ Show piece' : '➜ Show move'}
-        </button>
-        <button type="button" className="review-button" onClick={onReview} disabled={!canReview} title="Accuracy, grades and key moments so far">
-          📊 Review
-        </button>
-      </div>
+      {assisted && (
+        <div className="hint-row">
+          <button type="button" onClick={onIdea} disabled={!canIdea} title="A nudge toward the idea, without giving the move">
+            💡 Hint
+          </button>
+          <button
+            type="button"
+            onClick={onPiece}
+            disabled={!canPiece}
+            title={pieceStep === 0 ? 'Highlight the piece to move' : 'Show where the piece goes'}
+          >
+            {pieceStep === 0 ? '♟ Show piece' : '➜ Show move'}
+          </button>
+          <button type="button" className="review-button" onClick={onReview} disabled={!canReview} title="Accuracy, grades and key moments so far">
+            📊 Review
+          </button>
+        </div>
+      )}
     </section>
   )
 }

@@ -84,6 +84,14 @@ at it, or tap it, and the board shows the position at that point with an arrow a
 ("White's move 11: pawn from c2 to c3"). That works for lines that never happened in the game too, such as
 "after 10...Qxd1 11.Raxd1".
 
+## Unassisted games
+
+In **New game**, choose **⚔ Unassisted** instead of **🎓 Coached** for a real game: no hints, take-backs,
+retries, comments, grades or evaluation while you play. **🏳 Resign** takes the place of Take back and Forward.
+Your moves are still graded quietly, so when the game ends (or you resign) the grades appear, **📊 Game
+review** shows how it went, and your mistakes still become puzzles. The choice is remembered for the next
+game.
+
 ## Take back and Forward
 
 **↶ Take back** (or the ← key) undoes your last move and the opponent's reply. **Forward ↷** (or →) puts

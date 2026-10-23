@@ -78,9 +78,19 @@ interface GameState {
   voice: boolean
   review: ReviewSnapshot | null
   reviewOpen: boolean
+  /** False for an unassisted game: no comments, retries, hints, take-backs, grades or evaluation until it's over
+   * (moves are still graded quietly, for the review and the puzzles). */
+  assisted: boolean
+  /** The student resigned. */
+  resigned: boolean
 }
 
-const SETTING_KEYS = { retryMode: 'chess-coach.retry-mode', coachMode: 'chess-coach.coach-mode', voice: 'chess-coach.voice' }
+const SETTING_KEYS = {
+  retryMode: 'chess-coach.retry-mode',
+  coachMode: 'chess-coach.coach-mode',
+  voice: 'chess-coach.voice',
+  assisted: 'chess-coach.assisted',
+}
 
 function loadSetting<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   try {
@@ -146,6 +156,8 @@ function gameOverText(game: Chess, userColor: Side): string | null {
   return null
 }
 
+const RESIGNED = 'You resigned. Your opponent wins this one.'
+
 function wantsRetry(grade: MoveGrade, mode: RetryMode): boolean {
   if (!grade.retry_suggested || mode === 'off') return false
   return mode === 'mistakes' || grade.classification === 'blunder' || grade.classification === 'miss'
@@ -181,6 +193,8 @@ const INITIAL: GameState = {
   voice: false,
   review: null,
   reviewOpen: false,
+  assisted: true,
+  resigned: false,
 }
 
 /** `onPuzzleSaved`: called when one of the student's moves has been saved as a puzzle. */
@@ -190,6 +204,7 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
     retryMode: loadSetting(SETTING_KEYS.retryMode, ['mistakes', 'blunders', 'off'], 'mistakes'),
     coachMode: loadSetting(SETTING_KEYS.coachMode, ['key', 'all'], 'key'),
     voice: loadSetting(SETTING_KEYS.voice, ['on', 'off'], 'off') === 'on',
+    assisted: loadSetting(SETTING_KEYS.assisted, ['on', 'off'], 'on') === 'on',
   }))
   // Async handlers read and write through this ref so they never act on a stale snapshot.
   const stateRef = useRef(state)
@@ -251,7 +266,7 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
   const finishTurn = (s: GameState, next: Phase): GameState => {
     const over = gameOverText(buildGame(s.plies), s.userColor)
     if (!over) return { ...s, phase: next }
-    if (s.voice) speak(over)
+    if (s.voice && s.assisted) speak(over)
     return { ...s, phase: 'over', messages: [...s.messages, message('over', over)] }
   }
 
@@ -291,14 +306,14 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
     try {
       const grade = await api.grade(plies.map((p) => p.uci), signal)
       if (signal.aborted) return
-      const { retryingPly, retryMode, coachMode } = stateRef.current
+      const { retryingPly, retryMode, coachMode, assisted } = stateRef.current
       const found = retryingPly === grade.ply && GOOD_GRADES.has(grade.classification)
-      const offerRetry = wantsRetry(grade, retryMode)
+      const offerRetry = assisted && wantsRetry(grade, retryMode)
       const key = isKeyMove(grade, found)
       // In 'key' mode, routine moves get just their badge. Inaccuracies get a short note, read aloud like the
       // key moments (so the opponent waits for it too).
       const inaccuracy = grade.classification === 'inaccuracy'
-      const show = coachMode === 'all' || key || inaccuracy
+      const show = assisted && (coachMode === 'all' || key || inaccuracy)
       const note = show
         ? message('grade', grade.message ?? '', grade, {
             prefix: found ? 'You found it! ' : undefined,
@@ -326,14 +341,19 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
     }
   }
 
-  const newGame = (color: Side | 'random', level: Level) => {
+  /** Start a game. Without `assisted`, the coach stays quiet and nothing can be taken back until it's over. */
+  const newGame = (color: Side | 'random', level: Level, assisted = true) => {
     cancelPending()
     stopSpeaking()
     replies.current.abort()
     replies.current = new AbortController()
     const userColor: Side = color === 'random' ? (Math.random() < 0.5 ? 'white' : 'black') : color
-    const intro =
-      `You're playing ${userColor} against ${level.name} (about ${level.elo}). ` +
+    saveSetting(SETTING_KEYS.assisted, assisted ? 'on' : 'off')
+    const intro = !assisted
+      ? `You're playing ${userColor} against ${level.name} (about ${level.elo}), unassisted: no hints, take-backs, ` +
+        "comments or evaluation. Your moves are graded quietly, and the game review opens when the game is over, " +
+        'or if you resign.'
+      : `You're playing ${userColor} against ${level.name} (about ${level.elo}). ` +
       (stateRef.current.coachMode === 'key'
         ? "Every move gets a grade badge, and I'll speak up at the moments that matter. If you slip up, you can try again."
         : "I'll comment on every move, and if you slip up I'll give you the chance to try again.") +
@@ -343,6 +363,7 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
       retryMode: s.retryMode,
       coachMode: s.coachMode,
       voice: s.voice,
+      assisted,
       userColor,
       level,
       phase: userColor === 'white' ? 'user' : 'bot',
@@ -400,7 +421,7 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
   const undo = () => {
     const s = stateRef.current
     const userIndex = s.plies.findLastIndex((_, i) => (i % 2 === 0 ? 'w' : 'b') === s.userColor[0])
-    if (userIndex < 0 || s.phase === 'setup') return
+    if (userIndex < 0 || s.phase === 'setup' || !s.assisted) return
     cancelPending()
     const label = moveLabel(userIndex, s.plies[userIndex].san)
     update((s) => ({
@@ -422,7 +443,7 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
   const forward = () => {
     const s = stateRef.current
     const step = s.redo.at(-1)
-    if (!step || s.phase === 'setup') return
+    if (!step || s.phase === 'setup' || !s.assisted) return
     cancelPending()
     stopSpeaking()
     const first = s.plies.length
@@ -488,7 +509,7 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
   /** 💡 Hint: point toward the idea. */
   const requestIdea = () => {
     const s = stateRef.current
-    if (!studentToMove(s) || hintsHere(s).idea) return
+    if (!s.assisted || !studentToMove(s) || hintsHere(s).idea) return
     update((s) => ({ ...s, hints: { ...hintsHere(s), idea: true } }))
     hint(1)
   }
@@ -497,17 +518,35 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
   const revealPiece = () => {
     const s = stateRef.current
     const step = hintsHere(s).piece
-    if (!studentToMove(s) || step >= 2) return
+    if (!s.assisted || !studentToMove(s) || step >= 2) return
     update((s) => ({ ...s, hints: { ...hintsHere(s), piece: (step + 1) as 1 | 2 } }))
     hint(step === 0 ? 2 : 3)
   }
 
-  /** Open the game review, on the game as it stands now. */
+  /** Give up the game. */
+  const resign = () => {
+    const s = stateRef.current
+    if (s.phase === 'setup' || s.phase === 'over') return
+    cancelPending()
+    stopSpeaking()
+    update((s) => ({
+      ...s,
+      phase: 'over',
+      resigned: true,
+      pendingRetry: null,
+      retryingPly: null,
+      hintArrow: null,
+      pieceHint: null,
+      messages: [...s.messages, message('over', RESIGNED)],
+    }))
+  }
+
+  /** Open the game review, on the game as it stands now. (In an unassisted game, only once it's over.) */
   const openReview = () => {
     const s = stateRef.current
-    if (s.phase === 'setup' || !s.plies.some((p) => p.grade)) return
+    if (s.phase === 'setup' || !s.plies.some((p) => p.grade) || (!s.assisted && s.phase !== 'over')) return
     stopSpeaking()
-    const result = s.phase === 'over' ? (gameOverText(buildGame(s.plies), s.userColor) ?? null) : null
+    const result = s.phase !== 'over' ? null : s.resigned ? RESIGNED : (gameOverText(buildGame(s.plies), s.userColor) ?? null)
     update((s) => ({ ...s, review: { plies: s.plies, evals: s.evals, userColor: s.userColor, result }, reviewOpen: true }))
   }
 
@@ -530,25 +569,29 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
   }
 
   const game = useMemo(() => buildGame(state.plies), [state.plies])
-  const canUndo = state.phase !== 'setup' && state.plies.some((_, i) => (i % 2 === 0 ? 'w' : 'b') === state.userColor[0])
-  const canRedo = state.phase !== 'setup' && state.redo.length > 0
+  const canUndo =
+    state.assisted && state.phase !== 'setup' && state.plies.some((_, i) => (i % 2 === 0 ? 'w' : 'b') === state.userColor[0])
+  const canRedo = state.assisted && state.phase !== 'setup' && state.redo.length > 0
   const hints = state.hints.at === state.plies.length ? state.hints : { idea: false, piece: 0 }
   const myTurn = state.phase === 'user' && game.turn() === state.userColor[0]
-  const canReview = state.phase !== 'setup' && state.plies.some((p) => p.grade)
+  const canReview = state.phase !== 'setup' && state.plies.some((p) => p.grade) && (state.assisted || state.phase === 'over')
+  // During an unassisted game, grades and the evaluation stay hidden (they'd be help).
+  const helpHidden = !state.assisted && state.phase !== 'over'
 
   return {
     ...state,
     game,
     canUndo,
     canRedo,
-    canIdea: myTurn && !hints.idea,
+    canIdea: state.assisted && myTurn && !hints.idea,
     /** 0: "show piece" not used yet, 1: the piece is shown (next press shows the move), 2: both shown. */
     pieceStep: hints.piece,
-    canPiece: myTurn && hints.piece < 2,
+    canPiece: state.assisted && myTurn && hints.piece < 2,
+    helpHidden,
     canReview,
     actions: {
       newGame, playMove, tryAgain, continueGame, undo, forward, retryFailed, requestIdea, revealPiece,
-      openReview, closeReview, setRetryMode, setCoachMode, setVoice,
+      openReview, closeReview, resign, setRetryMode, setCoachMode, setVoice,
     },
   }
 }

@@ -209,7 +209,10 @@ export default function App() {
       interactive: !review && !settingUp && phase === 'user' && coach.game.turn() === userChar,
       userColor: userChar,
       lastMove: last ? { from: last.uci.slice(0, 2), to: last.uci.slice(2, 4) } : null,
-      badge: last?.grade ? { square: last.uci.slice(2, 4), classification: last.grade.classification } : null,
+      badge:
+        last?.grade && !coach.helpHidden
+          ? { square: last.uci.slice(2, 4), classification: last.grade.classification }
+          : null,
       arrows:
         coach.hintArrow && !review
           ? [{ startSquare: coach.hintArrow.from, endSquare: coach.hintArrow.to, color: BEST_ARROW }]
@@ -247,9 +250,9 @@ export default function App() {
       </header>
       <main>
         <div className="board-area">
-          {/* No evaluation during puzzles: it would give away whether there's something to find. */}
+          {/* No evaluation during puzzles or an unassisted game: it would give away whether there's something to find. */}
           <EvalBar
-            evaluation={puzzleMode || phase === 'setup' ? null : (reviewEvaluation ?? evaluation)}
+            evaluation={puzzleMode || phase === 'setup' || coach.helpHidden ? null : (reviewEvaluation ?? evaluation)}
             orientation={view.orientation}
           />
           <Board {...view} animate={!instant} />
@@ -281,10 +284,11 @@ export default function App() {
               <NewGame
                 levels={levels}
                 initialLevel={coach.level?.id ?? 'casual'}
-                onStart={(color, level) => {
+                initialAssisted={coach.assisted}
+                onStart={(color, level, assisted) => {
                   setShowSetup(false)
                   setFlipped(false)
-                  actions.newGame(color, level)
+                  actions.newGame(color, level, assisted)
                 }}
                 onCancel={phase === 'setup' ? undefined : () => setShowSetup(false)}
               />
@@ -324,15 +328,24 @@ export default function App() {
                 onPiece={actions.revealPiece}
                 canReview={coach.canReview}
                 onReview={openReview}
+                assisted={coach.assisted}
                 onPreview={showPreview}
               />
               <div className="controls">
-                <button onClick={actions.undo} disabled={!coach.canUndo || !!review} title="Take back your last move (←)">
-                  ↶ Take back
-                </button>
-                <button onClick={actions.forward} disabled={!coach.canRedo || !!review} title="Put back what you took back (→)">
-                  Forward ↷
-                </button>
+                {coach.assisted ? (
+                  <>
+                    <button onClick={actions.undo} disabled={!coach.canUndo || !!review} title="Take back your last move (←)">
+                      ↶ Take back
+                    </button>
+                    <button onClick={actions.forward} disabled={!coach.canRedo || !!review} title="Put back what you took back (→)">
+                      Forward ↷
+                    </button>
+                  </>
+                ) : (
+                  <button onClick={actions.resign} disabled={phase === 'over'} title="Give up this game">
+                    🏳 Resign
+                  </button>
+                )}
                 <button onClick={() => setFlipped((f) => !f)} title="Flip the board">
                   ⇅ Flip
                 </button>
@@ -348,7 +361,7 @@ export default function App() {
                   </button>
                 )}
               </div>
-              <MoveList plies={plies} />
+              <MoveList plies={plies} showGrades={!coach.helpHidden} />
               <details className="settings">
                 <summary>⚙ Settings</summary>
                 <label className="setting">
