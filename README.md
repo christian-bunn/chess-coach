@@ -84,9 +84,10 @@ hints, aloud.
   and a slightly calm pace. (Piper on its own runs sentences together and sets each one's volume
   separately, which sounds choppy.)
 - **Notation:** read as words, so "12...Nxe4+" becomes "knight takes e4, check".
-- **Interruptions:** only your own move stops what's being read. The comment on your move is read to the
-  end even if the opponent has already replied, and the guidance for their move waits its turn. If the
-  browser pauses a comment on its own, it picks up where it left off.
+- **Pace:** when the coach is reading a comment on your move, the opponent waits until it's finished before
+  replying (its move is worked out in the meantime), so the board stays in step with the voice.
+- **Interruptions:** only your own move stops what's being read. If the browser pauses a comment on its own,
+  it picks up where it left off.
 - **Settings:** set `COACH_VOICE` to a voice name to change the default, or to `off`. Without any voice
   models, Speak falls back to the browser's own voice where there is one.
 

@@ -2,7 +2,7 @@ import { Chess } from 'chess.js'
 import { useMemo, useRef, useState } from 'react'
 import { api, type Classification, type Eval, type Level, type MoveGrade } from './api'
 import { GOOD_GRADES } from './grades'
-import { speak, stopSpeaking } from './voice'
+import { speak, stopSpeaking, whenQuiet } from './voice'
 
 export type Side = 'white' | 'black'
 /**
@@ -262,7 +262,9 @@ export function useCoachGame() {
     update((s) => ({ ...s, phase: 'bot', failed: null }))
     const { plies, level } = stateRef.current
     try {
-      const grade = await api.botMove(plies.map((p) => p.uci), level?.id ?? 'casual', signal)
+      // The opponent waits until the comment on the student's move has been read, so the board stays in step
+      // with the voice. Its move is worked out in the meantime.
+      const [grade] = await Promise.all([api.botMove(plies.map((p) => p.uci), level?.id ?? 'casual', signal), whenQuiet(signal)])
       if (signal.aborted) return
       update((s) =>
         finishTurn(

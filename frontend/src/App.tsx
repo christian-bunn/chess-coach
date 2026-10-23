@@ -306,7 +306,7 @@ export default function App() {
                   </select>
                 </label>
                 {voiceAvailable && (
-                  <label title="Read key comments, hints and answers aloud">
+                  <label title="Read key comments, hints and guidance aloud">
                     <input type="checkbox" checked={coach.voice} onChange={(e) => actions.setVoice(e.target.checked)} />
                     Speak
                   </label>

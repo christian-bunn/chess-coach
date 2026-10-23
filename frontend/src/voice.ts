@@ -133,9 +133,28 @@ export function speak(text: string) {
   }
 }
 
+/** Whether anything is being read, or waiting to be read. */
+export function speaking(): boolean {
+  if (serverVoice) return loopFor !== -1 || queue.length > 0
+  return typeof window !== 'undefined' && 'speechSynthesis' in window && (window.speechSynthesis.speaking || window.speechSynthesis.pending)
+}
+
+/** Resolves once nothing is being read or waiting to be read: at the latest after `maxMs`, or when `signal` aborts. */
+export function whenQuiet(signal?: AbortSignal, maxMs = 30_000): Promise<void> {
+  return new Promise((resolve) => {
+    const started = Date.now()
+    const check = () => {
+      if (!speaking() || signal?.aborted || Date.now() - started > maxMs) resolve()
+      else setTimeout(check, 150)
+    }
+    check()
+  })
+}
+
 /** Stop reading, and drop anything queued. */
 export function stopSpeaking() {
   generation++
+  loopFor = -1 // the old loop just winds down; it mustn't count as still speaking
   for (const pending of queue) void pending.then((url) => url && URL.revokeObjectURL(url))
   queue = []
   current?.pause()
