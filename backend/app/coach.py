@@ -82,6 +82,8 @@ def describe_user_move(grade: MoveGrade, board: chess.Board) -> str:
         return "That was your only legal move."
     if grade.delivers_mate:
         return "Checkmate! Well played."
+    if c == "book":
+        return f"Book move. That's opening theory: the {grade.opening}." if grade.opening else "Book move."
     if c == "great":
         return f"Great move! {grade.san} was the only move that {_standing(grade.win_after)}."
     if c == "best":

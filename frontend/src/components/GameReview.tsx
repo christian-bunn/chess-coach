@@ -1,6 +1,6 @@
 import { useMemo, type MouseEvent } from 'react'
 import { GRADE_META } from '../grades'
-import { REVIEW_GRADES, accuracy, countGrades, hadBetter, keyMoments, sideGrades, winningChances } from '../review'
+import { REVIEW_GRADES, accuracy, countGrades, hadBetter, keyMoments, openingOf, sideGrades, winningChances } from '../review'
 import { moveLabel, type ReviewSnapshot } from '../useCoachGame'
 import type { Practice } from '../useReviewPractice'
 
@@ -38,6 +38,7 @@ export function GameReview({
       moments: keyMoments(review),
     }
   }, [review])
+  const opening = useMemo(() => openingOf(review.plies), [review])
 
   return (
     <section className="review" aria-label="Game review">
@@ -47,6 +48,12 @@ export function GameReview({
       </div>
       <div className="review-body">
         {review.result && <p className="review-result">{review.result}</p>}
+        {opening && (
+          <p className="review-opening">
+            📖 {opening.name}
+            {opening.eco && <span className="muted"> · {opening.eco}</span>}
+          </p>
+        )}
         <table className="review-table">
           <thead>
             <tr>

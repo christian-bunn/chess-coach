@@ -17,8 +17,9 @@ import chess.engine
 
 from .engine import Analysis
 
+# "book" isn't given here but by openings.mark_book, for opening theory the engine also likes.
 Classification = Literal[
-    "forced", "best", "great", "excellent", "good", "inaccuracy", "mistake", "miss", "blunder"
+    "forced", "book", "best", "great", "excellent", "good", "inaccuracy", "mistake", "miss", "blunder"
 ]
 
 # Classifications where the coach offers to take the move back.
@@ -133,6 +134,9 @@ class MoveGrade:
     # urgent enough (a threat, a chance) for the coach to speak up even in "key moments" mode.
     guide_topic: str | None = field(default=None)
     guide_urgent: bool = field(default=False)
+    # The opening the game has reached by this move (openings.mark_book), e.g. "Italian Game" and "C50".
+    opening: str | None = field(default=None)
+    eco: str | None = field(default=None)
 
 
 def classify(

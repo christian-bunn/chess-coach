@@ -8,7 +8,7 @@ import { GameReview } from './components/GameReview'
 import { MoveList } from './components/MoveList'
 import { NewGame } from './components/NewGame'
 import type { BoardPreview } from './moveRefs'
-import { previewMove } from './review'
+import { openingOf, previewMove } from './review'
 import { useCoachGame, type CoachMode, type RetryMode } from './useCoachGame'
 import { useReviewPractice } from './useReviewPractice'
 import { canSpeak, setServerVoice, setVoiceName, speak, stopSpeaking } from './voice'
@@ -140,6 +140,7 @@ export default function App() {
         ? (review.evals[reviewPreview?.played ? reviewView.ply : reviewView.ply - 1] ?? null)
         : (review.evals.at(-1) ?? null)
   const settingUp = phase === 'setup' || showSetup
+  const opening = useMemo(() => openingOf(plies), [plies])
 
   return (
     <div className="app">
@@ -150,6 +151,11 @@ export default function App() {
         {coach.level && phase !== 'setup' && (
           <span className="muted">
             vs {coach.level.name} (~{coach.level.elo}) · you play {userColor}
+          </span>
+        )}
+        {opening && phase !== 'setup' && (
+          <span className="opening-name" title={`${opening.eco ?? ''} ${opening.name}`.trim()}>
+            📖 {opening.name}
           </span>
         )}
       </header>

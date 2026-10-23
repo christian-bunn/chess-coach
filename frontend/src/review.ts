@@ -4,7 +4,15 @@ import type { BoardPreview } from './moveRefs'
 import { buildGame, moveLabel, type ReviewSnapshot } from './useCoachGame'
 
 /** The grades the review counts, best first. */
-export const REVIEW_GRADES: Classification[] = ['great', 'best', 'excellent', 'good', 'inaccuracy', 'mistake', 'miss', 'blunder']
+export const REVIEW_GRADES: Classification[] = [
+  'great', 'best', 'excellent', 'good', 'book', 'inaccuracy', 'mistake', 'miss', 'blunder',
+]
+
+/** The opening the game reached (its deepest named position), e.g. { name: "Italian Game", eco: "C50" }. */
+export function openingOf(plies: { grade: MoveGrade | null }[]): { name: string; eco: string | null } | null {
+  const grade = plies.findLast((p) => p.grade?.opening)?.grade
+  return grade?.opening ? { name: grade.opening, eco: grade.eco } : null
+}
 
 // The student's moves worth going back to (plus any move that missed a mate).
 const KEY_GRADES: ReadonlySet<Classification> = new Set(['great', 'mistake', 'miss', 'blunder'])

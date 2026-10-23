@@ -38,9 +38,10 @@ def test_start_position_is_roughly_equal(client):
     assert 45 < ev["white_win"] < 60
 
 
-def test_normal_opening_move_is_fine(client):
+def test_normal_opening_move_is_book(client):
     g = grade(client, ["e2e4"])
-    assert g["classification"] in {"best", "great", "excellent", "good"}
+    assert g["classification"] == "book" and g["opening"] == "King's Pawn Game" and g["eco"] == "B00"
+    assert g["message"] == "Book move. That's opening theory: the King's Pawn Game."
     assert not g["retry_suggested"]
 
 

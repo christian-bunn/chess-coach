@@ -94,6 +94,11 @@ header h1 {
   font-size: 1.5rem;
   margin: 0;
 }
+/* The opening the game has reached, in the Book grade's brown. */
+.opening-name {
+  color: #c9a77c;
+  font-weight: 600;
+}
 
 main {
   display: flex;
@@ -553,6 +558,10 @@ button.move-ref:focus-visible {
 .review-body h3 {
   margin: 4px 0 0;
   font-size: 1.1rem;
+}
+.review-opening {
+  margin: 0;
+  font-weight: 600;
 }
 .review-result {
   margin: 0;

@@ -124,8 +124,8 @@ opens it at any point during the game too.
 - **Accuracy:** a score from 0 to 100 for you and for the opponent. Each move scores by how much of your
   winning chance it gave away (Lichess's formula). The game score averages the plain mean with the
   harmonic mean, so a couple of blunders pull it down more than a plain average would.
-- **Grade counts:** how many great moves, best moves, inaccuracies, mistakes, misses and blunders each
-  side played.
+- **Grade counts:** how many great moves, best moves, book moves, inaccuracies, mistakes, misses and
+  blunders each side played, under the name of the opening the game reached.
 - **Graph:** your winning chances move by move, with a dot on each key moment. Click it, or use ← and →,
   to see the position after any move, with the move's badge on the piece and the eval bar for that position.
 - **Key moments:** your great moves, mistakes, missed wins, blunders and missed mates, with the coach's
@@ -173,7 +173,13 @@ chance it gave up compared with the best move:
 | < 20 | Mistake |
 | ≥ 20 | Blunder |
 
-There are also three special cases:
+There are also four special cases:
+- **Book:** opening theory. If the position after the move is on one of the 3,865 named lines in Lichess's
+  openings list, and the engine grades the move good or better, it's marked 📖 Book. Positions are matched,
+  not move orders, so a transposition into theory counts. The list includes traps such as "Barnes Opening:
+  Fool's Mate", so a book move the engine calls an inaccuracy or worse keeps that grade (2.g4 is still a
+  blunder). The opening the game has reached is shown next to the title, for example "📖 Italian Game:
+  Two Knights Defense", and stays after the game leaves theory.
 - **Forced:** you had only one legal move.
 - **Missed win:**
   - there was a forced mate in 3 or fewer and you didn't play it, or
@@ -201,8 +207,10 @@ backend/app/
   advice.py    Hints, by level
   guide.py     The coach's guidance before your move
   speech.py    The coach's voice: text to speech with Piper
+  openings.py  Opening names and book moves, from Lichess's openings list
   levels.py    Opponent strength presets
   config.py    Settings from env vars (COACH_ANALYSIS_DEPTH, COACH_ENGINE_THREADS, ...)
+backend/data/openings/  Lichess's openings list (a.tsv ... e.tsv: ECO code, name, moves)
 frontend/src/
   useCoachGame.ts       Game state: turns, grading, retry / take-back flow, hints, key moments
   review.ts             Game review: accuracy, grade counts, key moments
@@ -221,7 +229,11 @@ request, and the server caches analysis by position.
 2. ~~Move grading, eval bar, take-backs and "try again"~~
 3. ~~Coach guidance before each move, and hints that reveal a little more each time~~
 4. ~~Game review: accuracy, grade counts, eval graph, and retrying your mistakes~~
-5. Opening names, saved games, and puzzles from your own mistakes
+5. ~~Opening names and book moves~~
+6. Saved games, and puzzles from your own mistakes
+
+The opening names come from [lichess-org/chess-openings](https://github.com/lichess-org/chess-openings),
+which is in the public domain (CC0).
 
 Claude once wrote the comments from an engine fact sheet, with a chat for questions. It was removed: the
 engine-based wording turned out to be more reliable.

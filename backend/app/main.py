@@ -26,6 +26,7 @@ from .engine import EngineService
 from .guide import guidance, plan
 from .grading import Eval, MoveGrade, grade_move, san_line
 from .levels import DEFAULT_LEVEL, LEVELS, LEVELS_BY_ID
+from .openings import load as load_openings, mark_book
 from .speech import MAX_TEXT, Speech, voice_label
 
 log = logging.getLogger(__name__)
@@ -38,6 +39,7 @@ async def lifespan(app: FastAPI):
     engines = EngineService(settings)
     await engines.start()
     app.state.engines = engines
+    await asyncio.to_thread(load_openings)
     speech = Speech(settings.voices_dir, settings.voice)
     speech.start()
     app.state.speech = speech
@@ -139,7 +141,7 @@ async def _grade(engines: EngineService, board: chess.Board, move: chess.Move) -
     after_board.push(move)
     before = await engines.analyse(board)
     after = await engines.analyse(after_board)
-    return grade_move(board, move, before, after)
+    return mark_book(grade_move(board, move, before, after), board, move)
 
 
 @app.get("/api/health")

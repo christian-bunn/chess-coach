@@ -2,6 +2,8 @@
 
 export type Classification =
   | 'forced'
+  /** Opening theory (from Lichess's openings list) that the engine also likes. */
+  | 'book'
   | 'best'
   | 'great'
   | 'excellent'
@@ -44,6 +46,9 @@ export interface MoveGrade {
   /** For the opponent's moves: what the student should focus on next, and whether it's urgent. */
   guide_topic?: string | null
   guide_urgent?: boolean
+  /** The opening the game has reached by this move, e.g. "Italian Game" and "C50". */
+  opening: string | null
+  eco: string | null
 }
 
 export interface Level {
