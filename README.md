@@ -54,6 +54,8 @@ accurate:
   capturing the attacker, moving the piece away, blocking, defending, a check, or a checkmate that makes the
   threat irrelevant. So it won't tell you to save your queen when the better move is to take the piece
   attacking it.
+- **Material:** it only says there's material to win when the engine's evaluation agrees, so a pawn the
+  opponent wins straight back doesn't count.
 - **Checks:** it names your king and the checking piece ("Your king on g1 is in check from the knight on
   e2"), and says when the way out is to capture the checking piece.
 
@@ -63,7 +65,7 @@ By default the coach speaks up only at **key moments**, and every move still get
 move's badge also sits on the piece that moved, for your moves and the opponent's, the way chess.com shows it.
 
 - **Comments on your moves:** your mistakes, blunders and missed wins, your great moves, missed mates, and
-  finding the right move on a retry. Inaccuracies get a short note.
+  finding the right move on a retry. Inaccuracies get a short note, which is also read aloud.
 - **Guidance before your move:** when there's a threat or a chance, when the priority changes (at most
   every two moves), or when it's been quiet for four moves.
 
@@ -72,8 +74,8 @@ Under **⚙ Settings**, set **Coach comments** to "on every move" for comments a
 The newest message is outlined. If you scroll up to reread something, new messages won't pull you away, and
 a **↓ Latest** button takes you back.
 
-Turn on **Speak** (the 🔊 button, or under ⚙ Settings) to have the coach read those key comments, plus your
-hints, aloud.
+Turn on **Speak** (the 🔊 button, or under ⚙ Settings) to have the coach read those key comments and
+inaccuracy notes, plus your hints and its guidance, aloud.
 - **The voice:** [Piper](https://github.com/OHF-Voice/piper1-gpl), natural-sounding voice models that
   run offline on your CPU. The backend makes the audio and the page plays it, so it works in any browser,
   including the Claude desktop app's, which has no voices of its own.

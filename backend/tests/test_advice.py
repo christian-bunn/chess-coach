@@ -72,3 +72,16 @@ def test_quiet_hint_follows_the_coachs_plan():
     analysis = fake_analysis(board, ("O-O", Cp(30)))
     h = hint(board, analysis, None, 1, plan(board, analysis, None))
     assert h.text == "Your king is still in the center. This is a good moment to castle and keep it safe."
+
+
+def test_a_pawn_won_back_straight_away_is_not_a_gain():
+    # From a real game: after 1.f3 d5 the engine's line takes a pawn with 4.dxc5 that ...Bxc5 wins back just
+    # after the counted moves. The coach called it "a chance to win material"; the evaluation is -0.38.
+    board = board_after("f3", "d5")
+    line, b = [], board.copy()
+    for san in "d4 c5 e4 Nc6 dxc5 e6 Be3 d4".split():
+        line.append(b.parse_san(san))
+        b.push(line[-1])
+    analysis = Analysis(board.turn, Cp(-38), (Line(Cp(-38), tuple(line)),))
+    assert hint(board, analysis, None, 1).text.startswith("There's no immediate tactic")
+    assert plan(board, analysis, None).topic == "center"

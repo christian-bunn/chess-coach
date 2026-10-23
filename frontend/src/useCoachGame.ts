@@ -325,12 +325,14 @@ export function useCoachGame() {
       const found = retryingPly === grade.ply && GOOD_GRADES.has(grade.classification)
       const offerRetry = wantsRetry(grade, retryMode)
       const key = isKeyMove(grade, found)
-      // In 'key' mode, routine moves get just their badge, and inaccuracies a short built-in note.
-      const show = coachMode === 'all' || key || grade.classification === 'inaccuracy'
+      // In 'key' mode, routine moves get just their badge. Inaccuracies get a short note, read aloud like the
+      // key moments (so the opponent waits for it too).
+      const inaccuracy = grade.classification === 'inaccuracy'
+      const show = coachMode === 'all' || key || inaccuracy
       const note = show
         ? message('grade', grade.message ?? '', grade, {
             prefix: found ? 'You found it! ' : undefined,
-            speak: key,
+            speak: key || inaccuracy,
             context: plies.map((p) => p.uci),
           })
         : null

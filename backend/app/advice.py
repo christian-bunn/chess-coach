@@ -12,7 +12,7 @@ import chess
 
 from .engine import Analysis, Line
 from .facts import PIECE_NAMES, real_threat
-from .grading import material_change, numbered_san
+from .grading import material_balance, material_change, numbered_san
 
 if TYPE_CHECKING:
     from .guide import Plan
@@ -37,12 +37,24 @@ def idea(board: chess.Board, analysis: Analysis, threat: Line | None) -> tuple[s
     if mate is not None and mate > 0:
         return "mate", mate
     gain = material_change(board, analysis.best.pv, board.turn)
-    if gain >= 1:
+    if gain >= 1 and gain_holds(board, analysis, gain):
         return "material", gain
     if not real_threat(board, threat):
         # Without a threat, a small loss is usually an exchange still going on where the line was cut off.
         return "position", 0
     return ("concede", -gain) if gain < 0 else ("defend", 0)
+
+
+def gain_holds(board: chess.Board, analysis: Analysis, gain: int) -> bool:
+    """Whether the engine's evaluation backs up a material gain along its best line: the side to move should
+    be at least half the gain better off than the material on the board says.
+
+    A capture near the end of the counted moves can look like a gain when the piece is won straight back
+    just after them. After 1.f3 d5, the line 2.d4 c5 3.e4 Nc6 4.dxc5 e6 "wins" a pawn that ...Bxc5 takes
+    back, and the evaluation (-0.4) shows nothing was won.
+    """
+    expected = material_balance(board, board.turn) + gain / 2
+    return analysis.score.score(mate_score=100_000) >= expected * 100
 
 
 def threatened(board: chess.Board, threat: Line | None) -> str | None:
