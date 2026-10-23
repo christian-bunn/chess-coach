@@ -48,17 +48,20 @@ export function hadBetter(grade: MoveGrade): boolean {
 }
 
 /**
- * The board for move `ply` (1 = White's first) of the reviewed game: the position before it, with the move
- * drawn as an arrow. With `withBest`, the engine's better move is drawn too.
+ * The board for move `ply` (1 = White's first) of the reviewed game: the position after it, with its grade on
+ * the piece that moved. With `withBest`, the position before it instead, with the move and the engine's better
+ * move drawn as arrows.
  */
 export function previewMove(review: ReviewSnapshot, ply: number, withBest = false): BoardPreview {
   const played = review.plies[ply - 1]
   const grade = played.grade
   const best = withBest && grade && hadBetter(grade) ? grade : null
   return {
-    fen: buildGame(review.plies.slice(0, ply - 1)).fen(),
+    fen: buildGame(review.plies.slice(0, best ? ply - 1 : ply)).fen(),
     from: played.uci.slice(0, 2),
     to: played.uci.slice(2, 4),
+    played: !best,
+    badge: !best ? grade?.classification : undefined,
     label:
       moveLabel(ply - 1, played.san) +
       (grade ? ` · ${GRADE_META[grade.classification].label}` : '') +

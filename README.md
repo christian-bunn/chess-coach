@@ -59,7 +59,8 @@ accurate:
 
 ## How much the coach says
 
-By default the coach speaks up only at **key moments**, and every move still gets its grade badge.
+By default the coach speaks up only at **key moments**, and every move still gets its grade badge. The last
+move's badge also sits on the piece that moved, for your moves and the opponent's, the way chess.com shows it.
 
 - **Comments on your moves:** your mistakes, blunders and missed wins, your great moves, missed mates, and
   finding the right move on a retry. Inaccuracies get a short note.
@@ -121,7 +122,7 @@ opens it at any point during the game too.
 - **Grade counts:** how many great moves, best moves, inaccuracies, mistakes, misses and blunders each
   side played.
 - **Graph:** your winning chances move by move, with a dot on each key moment. Click it, or use ← and →,
-  to see any move on the board, with the eval bar for that position.
+  to see the position after any move, with the move's badge on the piece and the eval bar for that position.
 - **Key moments:** your great moves, mistakes, missed wins, blunders and missed mates, with the coach's
   comment on each. Click one to see it on the board. **Show best move** draws the engine's move in green
   next to yours in blue.

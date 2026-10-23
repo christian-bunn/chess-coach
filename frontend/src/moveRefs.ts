@@ -1,11 +1,16 @@
 import { Chess, type Move } from 'chess.js'
+import type { Classification } from './api'
 
-/** A position shown on the board instead of the game: a move about to be played. */
+/** A position shown on the board instead of the game, with a move on it. */
 export interface BoardPreview {
-  /** The position just before the move. */
+  /** The position just before the move, or just after it with `played`. */
   fen: string
   from: string
   to: string
+  /** The move has already been played on `fen`: it's highlighted rather than drawn as an arrow. */
+  played?: boolean
+  /** The move's grade, shown on the piece that moved (with `played`). */
+  badge?: Classification
   /** Shown over the board, e.g. "White's move 11: pawn from c2 to c3". */
   label: string
   /** The engine's better move, drawn as a second arrow. */

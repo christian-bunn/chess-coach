@@ -79,6 +79,13 @@ export function Board({
     const king = game.findPiece({ type: 'k', color: game.turn() })[0]
     if (king) style(king, { backgroundImage: CHECK })
   }
+  // The badge hangs over its square's top-right corner, except where the board's edge would cut it off.
+  const badgeClass = (square: string) => {
+    const [file, rank] = [square[0], square[1]]
+    const top = rank === (orientation === 'white' ? '8' : '1')
+    const right = file === (orientation === 'white' ? 'h' : 'a')
+    return `square-badge${top ? ' edge-top' : ''}${right ? ' edge-right' : ''}`
+  }
   if (selected) {
     style(selected, { backgroundColor: SELECTED })
     for (const move of legalFrom(selected)) {
@@ -123,7 +130,7 @@ export function Board({
               {children}
               {badge?.square === square && (
                 <span
-                  className="square-badge"
+                  className={badgeClass(square)}
                   style={{ background: GRADE_META[badge.classification].color }}
                   title={GRADE_META[badge.classification].label}
                 >

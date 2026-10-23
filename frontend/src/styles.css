@@ -153,22 +153,31 @@ button.move-ref:focus-visible {
   outline: none;
 }
 
+/* A move's grade on the piece that moved, over the square's top-right corner like chess.com's. */
 .square-badge {
   position: absolute;
-  top: 2px;
-  right: 2px;
-  min-width: 34%;
-  height: 34%;
+  top: -12%;
+  right: -12%;
+  min-width: 42%;
+  height: 42%;
   padding: 0 3px;
   border-radius: 999px;
+  border: 2px solid #fff;
   display: grid;
   place-items: center;
   color: #fff;
   font-weight: 800;
-  font-size: calc(var(--board-size) / 8 * 0.2);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  font-size: calc(var(--board-size) / 8 * 0.22);
+  line-height: 1;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
   pointer-events: none;
-  z-index: 2;
+  z-index: 5;
+}
+.square-badge.edge-top {
+  top: 2px;
+}
+.square-badge.edge-right {
+  right: 2px;
 }
 
 .promotion {

@@ -129,13 +129,16 @@ export default function App() {
   const userChar = userColor === 'white' ? 'w' : 'b'
   const orientation = flipped ? (userColor === 'white' ? 'black' : 'white') : userColor
   const last = plies.at(-1)
-  const lastWasUser = plies.length > 0 && ((plies.length - 1) % 2 === 0 ? 'w' : 'b') === userChar
   const evaluation: Eval | null = coach.evals.slice(0, plies.length + 1).findLast((e) => e != null) ?? null
-  // In the review, the bar follows the move being looked at (or the move just tried).
-  const reviewPly = practice.practice?.ply ?? reviewView?.ply
-  const reviewEvaluation: Eval | null = review
-    ? (practice.practice?.attempt?.eval_after ?? (reviewPly ? review.evals[reviewPly - 1] : review.evals.at(-1)) ?? null)
-    : null
+  // In the review, the bar follows the position on the board: the move being looked at (after it, or before it
+  // when comparing with the best move), or the move just tried.
+  const reviewEvaluation: Eval | null = !review
+    ? null
+    : practice.practice
+      ? (practice.practice.attempt?.eval_after ?? review.evals[practice.practice.ply - 1] ?? null)
+      : reviewView
+        ? (review.evals[reviewPreview?.played ? reviewView.ply : reviewView.ply - 1] ?? null)
+        : (review.evals.at(-1) ?? null)
   const settingUp = phase === 'setup' || showSetup
 
   return (
@@ -174,9 +177,13 @@ export default function App() {
             badge={
               practiceBoard
                 ? practiceBoard.badge
-                : !shown && !review && last?.grade && lastWasUser
-                  ? { square: last.uci.slice(2, 4), classification: last.grade.classification }
-                  : null
+                : shown
+                  ? shown.badge
+                    ? { square: shown.to, classification: shown.badge }
+                    : null
+                  : last?.grade
+                    ? { square: last.uci.slice(2, 4), classification: last.grade.classification }
+                    : null
             }
             arrows={
               practiceBoard
@@ -185,7 +192,7 @@ export default function App() {
                   : []
                 : shown
                   ? [
-                      { startSquare: shown.from, endSquare: shown.to, color: MOVE_ARROW },
+                      ...(shown.played ? [] : [{ startSquare: shown.from, endSquare: shown.to, color: MOVE_ARROW }]),
                       ...(shown.best ? [{ startSquare: shown.best.from, endSquare: shown.best.to, color: BEST_ARROW }] : []),
                     ]
                   : coach.hintArrow && !review
