@@ -28,7 +28,7 @@ export interface Ply {
 
 export interface CoachMessage {
   id: number
-  kind: 'grade' | 'opponent' | 'guide' | 'info' | 'over' | 'error' | 'hint'
+  kind: 'grade' | 'info' | 'over' | 'error' | 'hint'
   text: string
   /** Shown before the comment, e.g. "You found it!". */
   prefix?: string
@@ -70,8 +70,6 @@ interface GameState {
   hints: { at: number; idea: boolean; piece: 0 | 1 | 2 }
   /** The piece the "show piece" hint is pointing at, highlighted on the board. */
   pieceHint: string | null
-  /** What the coach's last guidance was about, and when, so it doesn't repeat itself. */
-  lastGuide: { topic: string; ply: number } | null
   /** What Take back removed, most recent last, so Forward can put it back (until a new move is made). */
   redo: { plies: Ply[]; evals: (Eval | null)[] }[]
   failed: 'grade' | 'bot' | null
@@ -173,7 +171,6 @@ const INITIAL: GameState = {
   hintArrow: null,
   hints: { at: 0, idea: false, piece: 0 },
   pieceHint: null,
-  lastGuide: null,
   redo: [],
   failed: null,
   retryMode: 'mistakes',
@@ -182,11 +179,6 @@ const INITIAL: GameState = {
   review: null,
   reviewOpen: false,
 }
-
-// In "key moments" mode the coach gives guidance when it's urgent, when the priority changes (at most every
-// GUIDE_GAP plies), or when it's been quiet for GUIDE_QUIET plies.
-const GUIDE_GAP = 4
-const GUIDE_QUIET = 8
 
 export function useCoachGame() {
   const [state, setState] = useState<GameState>(() => ({
@@ -276,37 +268,9 @@ export function useCoachGame() {
           'user',
         ),
       )
-      // Before the student moves, the coach says what to focus on (which also covers the opponent's move).
-      if (stateRef.current.phase === 'user' && shouldGuide(grade)) guideStudent(grade)
     } catch (error) {
       if (!signal.aborted) fail(error, 'bot')
     }
-  }
-
-  /** Whether the coach should guide the student after the opponent's move `grade`. */
-  const shouldGuide = (grade: MoveGrade): boolean => {
-    const { coachMode, lastGuide, plies } = stateRef.current
-    if (coachMode === 'all' || grade.guide_urgent) return true
-    const since = lastGuide ? plies.length - lastGuide.ply : Infinity
-    return (grade.guide_topic !== lastGuide?.topic && since >= GUIDE_GAP) || since >= GUIDE_QUIET
-  }
-
-  /** The coach's guidance for the student's move: what matters now, never the move itself. */
-  const guideStudent = (grade?: MoveGrade) => {
-    const s = stateRef.current
-    const context = s.plies.map((p) => p.uci)
-    const note = message('guide', '', grade, { loading: true, speak: true, context })
-    const ply = s.plies.length
-    update((s) => ({
-      ...s,
-      messages: [...s.messages, note],
-      lastGuide: grade?.guide_topic ? { topic: grade.guide_topic, ply } : s.lastGuide,
-    }))
-    void fill(note.id, async (signal) => {
-      const guide = await api.guide({ moves: context, student_color: s.userColor }, signal)
-      update((s) => ({ ...s, lastGuide: { topic: guide.topic, ply } }))
-      return guide.text
-    })
   }
 
   const continueGame = () => {
@@ -382,7 +346,6 @@ export function useCoachGame() {
       })
       .catch(() => {}) // the eval bar just stays centred
     if (userColor === 'black') void runBot()
-    else guideStudent()
   }
 
   const playMove = (uci: string) => {

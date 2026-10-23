@@ -196,30 +196,6 @@ function Message({ message, latest, onPreview }: { message: CoachMessage; latest
           <strong>{HINT_TITLES[message.hintLevel ?? 1]}</strong>
         </div>
       )}
-      {message.kind === 'guide' && (
-        <div className="bubble-head">
-          {grade ? (
-            <>
-              <span className="badge" style={{ background: GRADE_META[grade.classification].color }}>
-                {GRADE_META[grade.classification].symbol}
-              </span>
-              <strong>{moveLabel(grade.ply - 1, grade.san)}</strong>
-              <span className="muted">opponent · your move</span>
-            </>
-          ) : (
-            <strong>Your move</strong>
-          )}
-        </div>
-      )}
-      {message.kind === 'opponent' && grade && (
-        <div className="bubble-head">
-          <span className="badge" style={{ background: GRADE_META[grade.classification].color }}>
-            {GRADE_META[grade.classification].symbol}
-          </span>
-          <strong>{moveLabel(grade.ply - 1, grade.san)}</strong>
-          <span className="muted">opponent</span>
-        </div>
-      )}
       {body}
     </div>
   )

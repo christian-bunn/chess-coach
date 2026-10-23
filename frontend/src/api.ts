@@ -43,9 +43,6 @@ export interface MoveGrade {
   retry_suggested: boolean
   /** The coach's comment (on the student's moves). */
   message: string | null
-  /** For the opponent's moves: what the student should focus on next, and whether it's urgent. */
-  guide_topic?: string | null
-  guide_urgent?: boolean
   /** The opening the game has reached by this move, e.g. "Italian Game" and "C50". */
   opening: string | null
   eco: string | null
@@ -105,20 +102,11 @@ export interface HintResult {
   move: string | null
 }
 
-export interface GuideResult {
-  text: string
-  /** What the guidance is about ("threat", "castle", ...), so the coach doesn't repeat itself. */
-  topic: string
-  urgent: boolean
-}
-
 export const api = {
   config: () => request<CoachConfig>('/config'),
   levels: () => request<Level[]>('/levels'),
   voices: () => request<{ voices: VoiceOption[]; default: string | null }>('/voices'),
   hint: (body: HintRequest, signal?: AbortSignal) => request<HintResult>('/hint', body, signal),
-  /** The coach's guidance before the student's move. */
-  guide: (body: PositionRequest, signal?: AbortSignal) => request<GuideResult>('/guide', body, signal),
   analyze: (moves: string[], signal?: AbortSignal) => request<Analysis>('/analyze', { moves }, signal),
   grade: (moves: string[], signal?: AbortSignal) => request<MoveGrade>('/grade', { moves }, signal),
   botMove: (moves: string[], level: string, signal?: AbortSignal) =>

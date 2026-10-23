@@ -331,9 +331,6 @@ button.move-ref:focus-visible {
   background: transparent;
   border: 1px solid var(--border);
 }
-.bubble.opponent {
-  border-left: 3px solid #6b6862;
-}
 .bubble.over {
   background: #2f3b26;
   font-weight: 600;
@@ -355,9 +352,6 @@ button.move-ref:focus-visible {
 }
 .bubble.hint {
   border-left: 3px solid #f0c03a;
-}
-.bubble.guide {
-  border-left: 3px solid var(--accent);
 }
 .hint-row {
   display: flex;

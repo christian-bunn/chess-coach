@@ -23,7 +23,7 @@ from .advice import HINT_LEVELS, hint
 from .coach import describe_user_move
 from .config import Settings
 from .engine import EngineService
-from .guide import guidance, plan
+from .guide import plan
 from .grading import Eval, MoveGrade, grade_move, san_line
 from .levels import DEFAULT_LEVEL, LEVELS, LEVELS_BY_ID
 from .openings import load as load_openings, mark_book
@@ -58,10 +58,6 @@ class MovesIn(BaseModel):
 
 class BotMoveIn(MovesIn):
     level: str = DEFAULT_LEVEL
-
-
-class GuideIn(MovesIn):
-    student_color: Literal["white", "black"]
 
 
 class HintIn(MovesIn):
@@ -103,13 +99,6 @@ class HintOut:
     move: str | None  # UCI of the move (level 3), shown as an arrow
 
 
-@dataclass
-class GuideOut:
-    text: str
-    topic: str
-    urgent: bool
-
-
 def _engines(request: Request) -> EngineService:
     return request.app.state.engines
 
@@ -127,7 +116,7 @@ def _replay(moves: list[str]) -> chess.Board:
     return board
 
 
-def _students_move(body: GuideIn | HintIn) -> chess.Board:
+def _students_move(body: HintIn) -> chess.Board:
     """The position in `body`, which must be the student's move in a game that's still going."""
     board = _replay(body.moves)
     student_color = chess.WHITE if body.student_color == "white" else chess.BLACK
@@ -222,13 +211,7 @@ async def bot_move(body: BotMoveIn, request: Request) -> MoveGrade:
     engines = _engines(request)
     # The analysis of the current position is usually cached already; if not, run it alongside.
     move, _ = await asyncio.gather(engines.play(board, level), engines.analyse(board))
-    result = await _grade(engines, board, move)
-    after_board = board.copy()
-    after_board.push(move)
-    threat = await engines.threat(after_board)
-    if (next_plan := plan(after_board, await engines.analyse(after_board), threat)) is not None:
-        result.guide_topic, result.guide_urgent = next_plan.topic, next_plan.urgent
-    return result
+    return await _grade(engines, board, move)
 
 
 @app.post("/api/hint")
@@ -241,20 +224,3 @@ async def hint_endpoint(body: HintIn, request: Request) -> HintOut:
     threat = await engines.threat(board)
     result = hint(board, analysis, threat, body.level, plan(board, analysis, threat))
     return HintOut(result.text, result.square, result.move)
-
-
-@app.post("/api/guide")
-async def guide(body: GuideIn, request: Request) -> GuideOut:
-    """The coach's guidance before the student's move: what matters and what to aim for, without the
-    move itself."""
-    board = _students_move(body)
-    engines = _engines(request)
-    analysis = await engines.analyse(board)
-    threat = await engines.threat(board)
-    the_plan = plan(board, analysis, threat)
-    last = None
-    if board.move_stack:
-        before = board.copy()
-        before.pop()
-        last = await _grade(engines, before, board.peek())
-    return GuideOut(guidance(the_plan, last), the_plan.topic, the_plan.urgent)

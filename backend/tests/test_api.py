@@ -176,28 +176,3 @@ def test_speech_returns_audio(client):
         assert client.post("/api/speech", json={"text": "Hi", "voice": "en_US-nobody"}).status_code == 400
     finally:
         client.app.state.speech = real
-
-
-def test_guide(client):
-    g = post(client, "/api/guide", {"moves": ["e2e4", "e7e5", "d1h5", "g8f6"], "student_color": "white"})
-    # The queen is attacked; the engine's best answer (3.Qxe5+) also wins a pawn, so it's "material" or "threat".
-    assert g["topic"] in {"material", "threat"} and g["urgent"]
-    assert "queen on h5 is under attack" in g["text"]
-
-
-def test_guide_mentions_the_opponents_blunder(client):
-    g = post(client, "/api/guide", {"moves": SCHOLARS_SETUP, "student_color": "white"})
-    assert g == {"text": "Your opponent just blundered! There's checkmate in one here! Look at every check you can give.",
-                 "topic": "mate", "urgent": True}
-
-
-def test_guide_only_on_the_students_move(client):
-    assert client.post("/api/guide", json={"moves": ["e2e4"], "student_color": "white"}).status_code == 409
-
-
-def test_bot_move_reports_what_to_focus_on(client):
-    response = client.post("/api/bot-move", json={"moves": ["e2e4"], "level": "max"})
-    g = response.json()
-    assert g["guide_topic"] in {"check", "mate", "material", "threat", "concede", "castle", "develop", "center",
-                                "rooks", "king", "passed_pawn", "improve"}
-    assert isinstance(g["guide_urgent"], bool)

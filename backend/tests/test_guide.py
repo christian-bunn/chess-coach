@@ -1,4 +1,4 @@
-"""The coach's guidance before the student's move: the priority it picks, and that it never gives the move."""
+"""What matters in a position (guide.plan, used by hints): the priority it picks, and that it never gives the move."""
 
 import chess
 import chess.engine
@@ -6,8 +6,7 @@ import pytest
 
 from app.engine import Analysis, Line
 from app.advice import hint, threat_answer
-from app.guide import at_home, guidance, plan, stage
-from app.grading import grade_move
+from app.guide import at_home, plan, stage
 from tests.test_grading import board_after, fake_analysis
 
 Cp, Mate = chess.engine.Cp, chess.engine.Mate
@@ -58,7 +57,7 @@ def test_board_checks():
     assert at_home(board, chess.WHITE) == ["knight on b1", "bishop on c1", "bishop on f1"]
 
 
-def test_guidance_never_contains_the_move():
+def test_the_plan_never_contains_the_move():
     board = board_after("e4", "e5", "Nf3", "Nc6", "Bc4", "Bc5", "d3", "Nf6", "Nc3", "d6")
     p = plan(board, fake_analysis(board, ("O-O", Cp(30))), None)
     assert p.topic == "castle" and "O-O" not in p.text
@@ -113,14 +112,3 @@ def test_check_names_the_king_and_the_checking_piece():
     assert hint(board, analysis, None, 3, p).text == (
         "The engine's move is 25.Qxe2. It gets you out of check by taking the checking piece."
     )
-
-
-def test_guidance_mentions_the_opponents_mistake():
-    board = board_after("e4", "e5", "Qh5", "Nc6", "Bc4")
-    last = grade_move(board, board.parse_san("Nf6"), fake_analysis(board, ("g6", Cp(-50))),
-                      fake_analysis(board_after("e4", "e5", "Qh5", "Nc6", "Bc4", "Nf6"), ("Qxf7#", Mate(1))))
-    after = board_after("e4", "e5", "Qh5", "Nc6", "Bc4", "Nf6")
-    p = plan(after, fake_analysis(after, ("Qxf7#", Mate(1))), None)
-    assert last.classification == "blunder"
-    assert guidance(p, last) == "Your opponent just blundered! There's checkmate in one here! Look at every check you can give."
-    assert guidance(p, None) == p.text

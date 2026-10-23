@@ -1,8 +1,8 @@
-"""The coach's guidance before the student moves: what matters in the position and what to aim for.
+"""What matters in a position, for the 💡 Hint: a threat to meet, a chance to take, castling, development,
+and so on, in words that point the way without naming the move.
 
-The engine's best move decides the topic (a threat to meet, a chance to take, castling, development,
-and so on), but the guidance never names the move: it points the way, and the hint buttons are
-there for the move.
+The engine's best move decides the topic. (This used to drive guidance before every move too, which was
+dropped for repeating itself; hints ask for it only when the student wants it.)
 """
 
 from __future__ import annotations
@@ -14,9 +14,8 @@ import chess
 from .advice import check_answer, check_text, idea, threat_answer, threatened
 from .engine import Analysis, Line
 from .facts import PIECE_NAMES
-from .grading import MoveGrade
 
-# Topics the coach always speaks up about, even in "key moments" mode.
+# Topics with something to act on right away. A hint in a quieter position follows the plan's topic instead.
 URGENT = frozenset({"check", "mate", "material", "threat", "concede"})
 
 HOME = {
@@ -61,8 +60,8 @@ def is_passed(board: chess.Board, square: chess.Square) -> bool:
 @dataclass(frozen=True)
 class Plan:
     topic: str
-    urgent: bool  # a threat or a chance: worth saying even in "key moments" mode
-    text: str  # the coach's guidance, without the move
+    urgent: bool  # a threat or a chance to act on now
+    text: str  # what to aim for, without the move
 
 
 def plan(board: chess.Board, analysis: Analysis, threat: Line | None) -> Plan | None:
@@ -136,14 +135,3 @@ def _text(topic: str, amount: int, target: str | None, home: list[str], answer: 
         "passed_pawn": "You have a passed pawn. Push it, with your pieces supporting it.",
         "improve": "No tactics right now. Find your least active piece and give it a better square.",
     }[topic]
-
-
-def guidance(the_plan: Plan, last: MoveGrade | None) -> str:
-    """The coach's words before the student's move: a word on the opponent's last move when it was a
-    mistake (so the student knows to look for the punishment), then the plan."""
-    lead = None
-    if last is not None:
-        lead = {"blunder": "Your opponent just blundered!", "mistake": "Your opponent's last move was a mistake."}.get(
-            last.classification
-        )
-    return f"{lead} {the_plan.text}" if lead else the_plan.text

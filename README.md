@@ -6,8 +6,12 @@ and try again. When you're stuck, ask for a hint. After the game, a review shows
 replay your mistakes.
 
 **Design rule:** the engine decides what's true, and the coach only puts it into words. Stockfish does all the
-chess, and code turns its analysis into short sentences. Nothing is guessed: every comment, hint and piece of
-guidance restates something the engine worked out.
+chess, and code turns its analysis into short sentences. Nothing is guessed: every comment and hint restates
+something the engine worked out.
+
+**Teaching rule:** you play without running commentary, and the coaching happens around your mistakes: a
+retry when you slip, a hint when you ask, and a review afterwards. (Guidance before every move was tried and
+dropped: it mostly repeated itself, and telling you a tactic exists spoils the chance to spot it.)
 
 ## Setup
 
@@ -41,41 +45,20 @@ npm install
 - **No spoilers:** when you're offered a retry, the comment doesn't name the better move. "Show me" does
   that, if you want it.
 
-## The coach guides you
-
-When it's your move, the coach tells you what to focus on, without naming the move. For example: deal with
-a threat, take a chance to win material, castle while your king is still in the center, finish developing,
-fight for the center, or bring your rooks to open files. If the opponent's last move was a mistake or a
-blunder, it says so first, so you know there's something to find.
-
-The priority comes from the engine's best move, worked out in `backend/app/guide.py`. Some details keep it
-accurate:
-- **Threats:** when something of yours is attacked, the coach checks *how* the engine meets the threat:
-  capturing the attacker, moving the piece away, blocking, defending, a check, or a checkmate that makes the
-  threat irrelevant. So it won't tell you to save your queen when the better move is to take the piece
-  attacking it.
-- **Material:** it only says there's material to win when the engine's evaluation agrees, so a pawn the
-  opponent wins straight back doesn't count.
-- **Checks:** it names your king and the checking piece ("Your king on g1 is in check from the knight on
-  e2"), and says when the way out is to capture the checking piece.
-
 ## How much the coach says
 
-By default the coach speaks up only at **key moments**, and every move still gets its grade badge. The last
-move's badge also sits on the piece that moved, for your moves and the opponent's, the way chess.com shows it.
+By default the coach comments only at **key moments**: your mistakes, blunders and missed wins, your great
+moves, missed mates, and finding the right move on a retry. Inaccuracies get a short note. Every move still
+gets its grade badge, and the last move's badge sits on the piece that moved, for your moves and the
+opponent's, the way chess.com shows it.
 
-- **Comments on your moves:** your mistakes, blunders and missed wins, your great moves, missed mates, and
-  finding the right move on a retry. Inaccuracies get a short note, which is also read aloud.
-- **Guidance before your move:** when there's a threat or a chance, when the priority changes (at most
-  every two moves), or when it's been quiet for four moves.
-
-Under **⚙ Settings**, set **Coach comments** to "on every move" for comments and guidance on every move.
+Under **⚙ Settings**, set **Coach comments** to "on every move" for a comment on each of your moves.
 
 The newest message is outlined. If you scroll up to reread something, new messages won't pull you away, and
 a **↓ Latest** button takes you back.
 
 Turn on **Speak** (the 🔊 button, or under ⚙ Settings) to have the coach read those key comments and
-inaccuracy notes, plus your hints and its guidance, aloud.
+inaccuracy notes, plus your hints, aloud.
 - **The voice:** [Piper](https://github.com/OHF-Voice/piper1-gpl), natural-sounding voice models that
   run offline on your CPU. The backend makes the audio and the page plays it, so it works in any browser,
   including the Claude desktop app's, which has no voices of its own.
@@ -111,8 +94,19 @@ starts a new line, and Forward then has nothing to replay.
 
 Two hint buttons, usable on each of your moves:
 
-- **💡 Hint:** a nudge toward the idea. It might say there's a checkmate, a way to win material, a threat to
-  deal with, or what to focus on in a quiet position (the same priority the guidance uses).
+- **💡 Hint:** a nudge toward the idea, without naming the piece or the move. It might say there's a
+  checkmate, a way to win material, a threat to deal with, or what to aim for in a quiet position: castle
+  while your king is still in the center, finish developing, fight for the center, or bring your rooks to
+  open files. The priority comes from the engine's best move (`backend/app/guide.py`), and a few details keep
+  it accurate:
+  - **Threats:** when something of yours is attacked, it checks *how* the engine meets the threat:
+    capturing the attacker, moving the piece away, blocking, defending, a check, or a checkmate that makes
+    the threat irrelevant. So it won't tell you to save your queen when the better move is to take the
+    piece attacking it.
+  - **Material:** it only says there's material to win when the engine's evaluation agrees, so a pawn the
+    opponent wins straight back doesn't count.
+  - **Checks:** it names your king and the checking piece ("Your king on g1 is in check from the knight on
+    e2"), and says when the way out is to capture the checking piece.
 - **♟ Show piece:** highlights the piece to move on the board. Press it again (**➜ Show move**) and an
   arrow shows where it goes, with a sentence on why the move works.
 
@@ -155,8 +149,8 @@ cd backend && .venv/bin/python -m pytest
   and missing mate in one.
 - `tests/test_facts.py` checks why bad moves are bad, including positions from real games.
 - `tests/test_advice.py` checks what each hint level reveals.
-- `tests/test_guide.py` checks the guidance picks the right priority, deals with threats and checks the
-  way the engine does, and never contains the move.
+- `tests/test_guide.py` checks the hints' priority for a position: the right topic, threats and checks met
+  the way the engine meets them, and never the move itself.
 
 ## How moves are graded
 
@@ -199,13 +193,13 @@ Thresholds are constants at the top of `backend/app/grading.py`.
 ```
 backend/app/
   main.py      FastAPI routes: /api/levels, /api/config, /api/analyze, /api/grade, /api/bot-move,
-               /api/guide, /api/hint, /api/speech, /api/voices
+               /api/hint, /api/speech, /api/voices
   engine.py    Two Stockfish processes (analysis + opponent), position cache, null-move threat search
   grading.py   win%, material counting, classification -> MoveGrade
   facts.py     Why a bad move is bad, and whether a threat is real, from the engine's lines
   coach.py     The coach's comments on your moves
   advice.py    Hints, by level
-  guide.py     The coach's guidance before your move
+  guide.py     What matters in a position, for the 💡 Hint
   speech.py    The coach's voice: text to speech with Piper
   openings.py  Opening names and book moves, from Lichess's openings list
   levels.py    Opponent strength presets
@@ -227,7 +221,7 @@ request, and the server caches analysis by position.
 
 1. ~~Playable game against Stockfish at adjustable strength~~
 2. ~~Move grading, eval bar, take-backs and "try again"~~
-3. ~~Coach guidance before each move, and hints that reveal a little more each time~~
+3. ~~Hints that reveal a little more each time~~ (guidance before every move was tried, then dropped)
 4. ~~Game review: accuracy, grade counts, eval graph, and retrying your mistakes~~
 5. ~~Opening names and book moves~~
 6. Saved games, and puzzles from your own mistakes

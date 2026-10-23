@@ -130,10 +130,6 @@ class MoveGrade:
     delivers_mate: bool
     retry_suggested: bool
     message: str | None = field(default=None)
-    # For the opponent's moves: what the student should focus on next (see guide.plan), and whether it's
-    # urgent enough (a threat, a chance) for the coach to speak up even in "key moments" mode.
-    guide_topic: str | None = field(default=None)
-    guide_urgent: bool = field(default=False)
     # The opening the game has reached by this move (openings.mark_book), e.g. "Italian Game" and "C50".
     opening: str | None = field(default=None)
     eco: str | None = field(default=None)
