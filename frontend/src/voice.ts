@@ -71,6 +71,8 @@ let current: HTMLAudioElement | null = null
 // Bumped by stopSpeaking(), so anything still loading or playing from before is dropped.
 let generation = 0
 let loopFor = -1
+// How many times a clip paused by something else (the browser, another app taking the audio) is picked up again.
+const MAX_RESUMES = 2
 
 async function playQueue(gen: number) {
   while (gen === generation && queue.length > 0) {
@@ -84,7 +86,16 @@ async function playQueue(gen: number) {
     await new Promise<void>((resolve) => {
       const audio = new Audio(url)
       current = audio
-      audio.onended = audio.onerror = audio.onpause = () => resolve()
+      let resumes = 0
+      audio.onended = audio.onerror = () => resolve()
+      // Only stopSpeaking() (the student's next move) should cut a comment short. A pause from anywhere
+      // else used to skip straight to the next comment, so it's resumed instead.
+      audio.onpause = () => {
+        if (gen !== generation || audio.ended || resumes >= MAX_RESUMES) return resolve()
+        resumes++
+        console.info('Coach voice: picking up a comment that was paused from outside the page')
+        audio.play().catch(() => resolve())
+      }
       audio.play().catch(() => resolve())
     })
     current = null
