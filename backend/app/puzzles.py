@@ -88,6 +88,10 @@ class PuzzleStore:
     def get(self, pid: str) -> Puzzle | None:
         return self._puzzles.get(pid)
 
+    def all(self) -> list[Puzzle]:
+        """Every puzzle, the soonest due (or longest overdue) first."""
+        return sorted(self._puzzles.values(), key=lambda p: p.due)
+
     def next(self, early: bool = False) -> Puzzle | None:
         """The puzzle due longest ago. With `early`, the one due soonest when none is due yet."""
         now = _iso(self.clock())

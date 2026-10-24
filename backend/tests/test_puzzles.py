@@ -79,3 +79,13 @@ def test_the_longest_overdue_comes_first(tmp_path):
     s.add("position-b", **fields())
     clock.days(5)
     assert s.next().id == older
+
+
+def test_all_puzzles_soonest_due_first(tmp_path):
+    clock = Clock()
+    s = store(tmp_path, clock)
+    later = s.add("position-a", **fields()).id
+    clock.days(2)
+    s.record(later, solved=True)  # due 3 days from now
+    sooner = s.add("position-b", **fields()).id  # due tomorrow
+    assert [p.id for p in s.all()] == [sooner, later]

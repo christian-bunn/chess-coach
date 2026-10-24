@@ -1,25 +1,33 @@
-import type { MoveGrade, Puzzle, PuzzleSummary } from '../api'
+import type { Classification, MoveGrade, Puzzle, PuzzleSummary } from '../api'
 import { GRADE_META } from '../grades'
-import { moveLabel } from '../useCoachGame'
+import { moveLabel, type Ply } from '../useCoachGame'
 import type { PuzzleStatus } from '../usePuzzles'
+import { MoveList } from './MoveList'
+
+/** The game played on from a solved puzzle: its moves, and how it stands ("Your move.", "Checkmate. You win!"). */
+export interface PlayOn {
+  plies: Ply[]
+  status: string
+}
 
 interface PuzzlePanelProps {
   summary: PuzzleSummary | null
+  /** Every puzzle, the soonest due first (null while loading). */
+  list: Puzzle[] | null
   puzzle: Puzzle | null
   status: PuzzleStatus
   attempt: MoveGrade | null
   /** The puzzle as rescheduled after this review (null until the first answer). */
   scheduled: Puzzle | null
   loading: boolean
-  /** Load the next due puzzle; `early` for one that isn't due yet. */
-  onStart: (early: boolean) => void
+  playOn: PlayOn | null
+  /** The puzzle due longest ago (or back to the list if none is due). */
+  onNext: () => void
+  onOpen: (id: string) => void
+  onClose: () => void
   onTryAgain: () => void
   onShowSolution: () => void
   onRemove: () => void
-  /** How many moves have been played on from the finished puzzle; taking one back, and going back to its start. */
-  explored: number
-  onUndoExplore: () => void
-  onResetExplore: () => void
 }
 
 /** "in 5 hours", "tomorrow", "in 3 days". */
@@ -31,25 +39,26 @@ function fromNow(iso: string): string {
   return days === 1 ? 'tomorrow' : `in ${days} days`
 }
 
-export function PuzzlePanel({
-  summary,
-  puzzle,
-  status,
-  attempt,
-  scheduled,
-  loading,
-  onStart,
-  onTryAgain,
-  onShowSolution,
-  onRemove,
-  explored,
-  onUndoExplore,
-  onResetExplore,
-}: PuzzlePanelProps) {
+const MASTERED_STREAK = 4
+
+// What the game move was. A puzzle can also come from a decent move that missed a mate.
+const GRADE_PHRASES: Partial<Record<Classification, string>> = {
+  blunder: 'a blunder',
+  mistake: 'a mistake',
+  miss: 'a missed win',
+  inaccuracy: 'an inaccuracy',
+}
+function gradePhrase(grade: Classification): string {
+  return GRADE_PHRASES[grade] ?? 'playable, but there was something much stronger'
+}
+
+export function PuzzlePanel(props: PuzzlePanelProps) {
+  const { summary, list, puzzle, loading, onNext, onOpen, onClose } = props
   return (
     <section className="puzzles" aria-label="Puzzles from your mistakes">
       <div className="review-head">
         <h2>Learn from your mistakes</h2>
+        {puzzle && <button onClick={onClose}>← All puzzles</button>}
       </div>
       {summary && summary.total > 0 && (
         <p className="muted puzzle-summary">
@@ -58,42 +67,46 @@ export function PuzzlePanel({
       )}
       <div className="review-body">
         {puzzle ? (
-          <PuzzleCard
-            puzzle={puzzle}
-            status={status}
-            attempt={attempt}
-            scheduled={scheduled}
-            onNext={() => onStart(false)}
-            onTryAgain={onTryAgain}
-            onShowSolution={onShowSolution}
-            onRemove={onRemove}
-            explored={explored}
-            onUndoExplore={onUndoExplore}
-            onResetExplore={onResetExplore}
-          />
-        ) : loading ? (
+          <PuzzleCard {...props} puzzle={puzzle} />
+        ) : loading || list === null ? (
           <p className="muted">Loading…</p>
-        ) : !summary || summary.total === 0 ? (
+        ) : list.length === 0 ? (
           <p>
             Your mistakes, missed wins and blunders from games are saved here as puzzles, from the position before
             your move. Each one comes back the next day, then less and less often as you solve it: after 3 days, a
             week, two weeks, a month. A miss brings it back the next day.
           </p>
-        ) : summary.due > 0 ? (
-          <div className="moment-actions">
-            <button className="primary" onClick={() => onStart(false)}>
-              Start ({summary.due} due)
-            </button>
-          </div>
         ) : (
           <>
-            <p>
-              Nothing due right now.
-              {summary.next_due && ` The next puzzle comes back ${fromNow(summary.next_due)}.`}
-            </p>
-            <div className="moment-actions">
-              <button onClick={() => onStart(true)}>Do one early</button>
-            </div>
+            {!!summary?.due && (
+              <div className="moment-actions">
+                <button className="primary" onClick={onNext}>
+                  Start the due puzzles ({summary.due})
+                </button>
+              </div>
+            )}
+            <ol className="moments">
+              {list.map((p) => {
+                const meta = GRADE_META[p.grade]
+                const due = new Date(p.due).getTime() <= Date.now()
+                return (
+                  <li key={p.id} className={`moment puzzle-item ${due ? 'due' : ''}`}>
+                    <button type="button" className="moment-head" onClick={() => onOpen(p.id)} title="Do this puzzle">
+                      <span className="badge small" style={{ background: meta.color }}>
+                        {meta.symbol}
+                      </span>
+                      <strong>{p.color === 'white' ? 'White' : 'Black'} to move</strong>
+                      {p.opening && <span className="muted">· {p.opening}</span>}
+                    </button>
+                    <p className="muted">
+                      In your game: {moveLabel(p.moves.length, p.played_san)}, {gradePhrase(p.grade)}.{' '}
+                      {due ? <strong className="due-now">Due now</strong> : `Next review ${fromNow(p.due)}`}
+                      {p.streak >= MASTERED_STREAK && ' · mastered'}
+                    </p>
+                  </li>
+                )
+              })}
+            </ol>
           </>
         )}
       </div>
@@ -106,26 +119,12 @@ function PuzzleCard({
   status,
   attempt,
   scheduled,
+  playOn,
   onNext,
   onTryAgain,
   onShowSolution,
   onRemove,
-  explored,
-  onUndoExplore,
-  onResetExplore,
-}: {
-  puzzle: Puzzle
-  status: PuzzleStatus
-  attempt: MoveGrade | null
-  scheduled: Puzzle | null
-  onNext: () => void
-  onTryAgain: () => void
-  onShowSolution: () => void
-  onRemove: () => void
-  explored: number
-  onUndoExplore: () => void
-  onResetExplore: () => void
-}) {
+}: PuzzlePanelProps & { puzzle: Puzzle }) {
   const finished = status === 'right' || status === 'shown'
   const index = puzzle.moves.length
   const meta = GRADE_META[puzzle.grade]
@@ -146,8 +145,8 @@ function PuzzleCard({
         {puzzle.opening && <span className="muted">· {puzzle.opening}</span>}
       </div>
       <p>
-        In your game you played <strong>{moveLabel(index, puzzle.played_san)}</strong> here, a{' '}
-        {meta.label.toLowerCase()}. Find a better move.
+        In your game you played <strong>{moveLabel(index, puzzle.played_san)}</strong> here, {gradePhrase(puzzle.grade)}.
+        Find a better move.
       </p>
       <div className="practice">
         <p>
@@ -157,19 +156,21 @@ function PuzzleCard({
               grading: 'Checking your move…',
               right: `Correct! ${attemptText}`,
               wrong: attemptText,
-              shown: `The move was ${moveLabel(index, puzzle.best_san)}. It's drawn on the board.`,
+              shown: `The move was ${moveLabel(index, puzzle.best_san)}. It's drawn on the board: play it, and your opponent plays on.`,
               error: "I couldn't reach the engine.",
             }[status]
           }
         </p>
-        {finished && puzzle.comment && (
-          <p className="muted">In the game: {puzzle.comment}</p>
-        )}
+        {finished && puzzle.comment && <p className="muted">In the game: {puzzle.comment}</p>}
         {schedule && <p className="muted">{schedule}</p>}
-        {finished && (
-          <p className="muted">
-            Play on with either side to explore the position. The evaluation bar follows along.
-          </p>
+        {playOn && (
+          <div className="play-on">
+            <p>
+              <strong>Playing on</strong> <span className="muted">· graded, against your last game's opponent</span>
+            </p>
+            <p>{playOn.status}</p>
+            <MoveList plies={playOn.plies} />
+          </div>
         )}
         <div className="moment-actions">
           {(status === 'wrong' || status === 'error') && (
@@ -179,17 +180,9 @@ function PuzzleCard({
           )}
           {(status === 'thinking' || status === 'wrong') && <button onClick={onShowSolution}>Show solution</button>}
           {finished && (
-            <>
-              <button className="primary" onClick={onNext}>
-                Next puzzle
-              </button>
-              <button onClick={onUndoExplore} disabled={explored === 0} title="Take back the last move you explored">
-                ↶ Undo
-              </button>
-              <button onClick={onResetExplore} disabled={explored === 0} title="Back to the puzzle position">
-                Reset
-              </button>
-            </>
+            <button className="primary" onClick={onNext}>
+              Next puzzle
+            </button>
           )}
         </div>
       </div>

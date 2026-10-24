@@ -576,6 +576,20 @@ button.move-ref:focus-visible {
 .puzzle-summary {
   margin: 0;
 }
+.puzzle-item.due {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.due-now {
+  color: var(--accent);
+}
+.play-on {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.play-on p {
+  margin: 0 0 6px;
+}
 .puzzle-remove {
   margin-top: 8px;
   padding: 0;

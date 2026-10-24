@@ -100,10 +100,13 @@ mistakes still become puzzles.
 ## Stepping through the game
 
 **⏮ ◀ ▶ ⏭** above the move list, or clicking a move in it, show the board as it was after that move, with
-its grade badge and evaluation where the game shows them. Looking back never changes the game: the board
-can't be moved until **⏭** brings you back to the current position, and an opponent's move doesn't pull you
-away. In graded and unassisted games the ← and → keys step through the game too. (In coached games they're
-Take back and Forward.)
+its grade badge and evaluation where the game shows them. Looking back never changes the game by itself, and an
+opponent's move doesn't pull you away. In graded and unassisted games the board stays locked until **⏭** brings
+you back, and the ← and → keys step through the game too.
+
+In a coached game you can also play on from any earlier position: make a move there (or press **↩ Play from
+here** when it's your opponent's move) and everything after it is taken back. **Forward** can still put it back
+until you play a new move. (In coached games ← and → are Take back and Forward.)
 
 ## Take back and Forward
 
@@ -155,8 +158,10 @@ opens it at any point during the game too.
 ## Learn from your mistakes
 
 Every mistake, missed win and blunder you make in a game, and every missed mate, is saved as a puzzle: the
-position just before your move, with your move and the engine's. **🧩 Puzzles** in the top right switches to
-them; the number on it is how many are due. Your game waits while you do puzzles, and **♟ Play** takes you back.
+position just before your move, with your move and the engine's. **🧩 Puzzles** in the top right lists them all,
+the due ones first, with when each comes back next; the number on it is how many are due. Click one to do it,
+or **Start the due puzzles** to go through those in order. Your game waits while you do puzzles, and **♟ Play**
+takes you back.
 
 - **Spaced repetition:** a new puzzle comes back the next day. Each time you find the move at the first try,
   the gap grows: 3 days, a week, two weeks, a month, two months, four months. A wrong first try, or asking for
@@ -166,12 +171,14 @@ them; the number on it is how many are due. Your game waits while you do puzzles
   sets the schedule.
 - **No giveaways:** the eval bar is hidden while you solve, since it would show whether there's something to
   find.
-- **Play on:** once a puzzle is finished (solved, or the solution shown), you can move both White's and Black's
-  pieces to explore the position, with the eval bar following along. **↶ Undo** takes back a move, and
-  **Reset** goes back to the puzzle.
+- **Play on:** once you find the move, the opponent plays on as a graded game (grade badges and the eval bar)
+  against the level of your last game, so you can see the idea through. After **Show solution**, play the move
+  shown and the opponent plays on the same way. Your game in Play isn't touched, and mistakes made playing on
+  become puzzles too.
 - **Repeats:** making the same mistake in the same position in another game doesn't add a second puzzle; it
   starts that puzzle's schedule over.
-- **Nothing due:** **Do one early** brings forward the one due soonest. **Remove this puzzle** deletes one.
+- **Doing one early:** any puzzle in the list can be done before it's due; it counts toward its schedule the
+  same way. **Remove this puzzle** deletes one.
 - **Where they're kept:** `progress/puzzles.json` in the project folder (git-ignored), so they last across
   games and browsers. Set `COACH_PROGRESS_DIR` to keep them somewhere else.
 

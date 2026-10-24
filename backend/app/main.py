@@ -293,6 +293,17 @@ async def next_puzzle(request: Request, early: bool = False) -> Puzzle | None:
     return _puzzles(request).next(early)
 
 
+@app.get("/api/puzzles/all")
+async def all_puzzles(request: Request) -> list[Puzzle]:
+    """Every saved puzzle, the soonest due first, to pick from."""
+    return _puzzles(request).all()
+
+
+@app.get("/api/puzzles/{pid}")
+async def get_puzzle(pid: str, request: Request) -> Puzzle:
+    return _puzzle(request, pid)
+
+
 @app.post("/api/puzzles")
 async def save_puzzle(body: MovesIn, request: Request) -> dict:
     """Save the last move in `moves` (the student's) as a puzzle if it was a mistake, a missed win or a blunder,

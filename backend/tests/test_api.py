@@ -195,6 +195,9 @@ def test_puzzles_from_mistakes(client, tmp_path):
     assert puzzle["comment"] == "Blunder! 2.Qg4 puts your queen on g4, and 2...Bxg4 takes it."
 
     pid = puzzle["id"]
+    assert [p["id"] for p in client.get("/api/puzzles/all").json()] == [pid]
+    assert client.get(f"/api/puzzles/{pid}").json() == puzzle
+    assert client.get("/api/puzzles/nope").status_code == 404
     wrong = client.post(f"/api/puzzles/{pid}/attempt", json={"uci": "d1g4"}).json()
     assert not wrong["correct"] and wrong["grade"]["classification"] == "blunder"
     right = client.post(f"/api/puzzles/{pid}/attempt", json={"uci": "e4d5"}).json()

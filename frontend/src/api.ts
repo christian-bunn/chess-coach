@@ -170,6 +170,9 @@ export const api = {
   puzzles: {
     summary: () => request<PuzzleSummary>('/puzzles'),
     next: (early: boolean) => request<Puzzle | null>(`/puzzles/next${early ? '?early=true' : ''}`),
+    /** Every puzzle, the soonest due first. */
+    all: () => request<Puzzle[]>('/puzzles/all'),
+    get: (id: string) => request<Puzzle>(`/puzzles/${id}`),
     /** Save the last move in `moves` as a puzzle, if it was a mistake (the backend checks). */
     save: (moves: string[]) => request<{ saved: boolean; id: string | null }>('/puzzles', { moves }),
     attempt: (id: string, uci: string, signal?: AbortSignal) =>

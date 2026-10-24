@@ -395,6 +395,38 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
     if (userColor === 'black') void runBot()
   }
 
+  /**
+   * Start a game from a position reached by `moves` (from the start), with the student playing `color`: a solved
+   * puzzle played on. Unlike newGame, it leaves the saved settings alone.
+   */
+  const playOnFrom = (moves: string[], color: Side, level: Level, assistance: Assistance, intro: string) => {
+    cancelPending()
+    stopSpeaking()
+    const game = new Chess()
+    const plies: Ply[] = moves.map((uci) => ({ uci, san: game.move(toMove(uci)).san, grade: null }))
+    update((s) => ({
+      ...INITIAL,
+      retryMode: s.retryMode,
+      coachMode: s.coachMode,
+      voice: s.voice,
+      assistance,
+      userColor: color,
+      level,
+      plies,
+      evals: Array(plies.length + 1).fill(null),
+      phase: game.turn() === color[0] ? 'user' : 'bot',
+      messages: [message('info', intro)],
+    }))
+    const signal = pending.current.signal
+    api
+      .analyze(moves, signal)
+      .then((a) => {
+        if (!signal.aborted) update((s) => ({ ...s, evals: s.evals.map((e, i) => (i === moves.length ? (e ?? a.eval) : e)) }))
+      })
+      .catch(() => {})
+    if (game.turn() !== color[0]) void runBot()
+  }
+
   const playMove = (uci: string) => {
     const s = stateRef.current
     if (s.phase !== 'user') return
@@ -453,6 +485,37 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
       redo: [...s.redo, { plies: s.plies.slice(userIndex), evals: s.evals.slice(userIndex + 1) }],
       messages: [...s.messages, message('info', `Took back ${label}.`, undefined, { context: s.plies.map((p) => p.uci) })],
     }))
+  }
+
+  /**
+   * Go back to the position after `ply` moves and play on from there (coached games only). Everything after it is
+   * taken back, and Forward can put it back until a new move is made. If it's the opponent's move there, they play.
+   */
+  const rewindTo = (ply: number) => {
+    const s = stateRef.current
+    if (s.phase === 'setup' || s.assistance !== 'coached' || ply < 0 || ply >= s.plies.length) return
+    cancelPending()
+    stopSpeaking()
+    const label = ply > 0 ? moveLabel(ply - 1, s.plies[ply - 1].san) : 'the start'
+    update((s) => ({
+      ...s,
+      plies: s.plies.slice(0, ply),
+      evals: s.evals.slice(0, ply + 1),
+      phase: 'user',
+      resigned: false,
+      pendingRetry: null,
+      retryingPly: null,
+      hintArrow: null,
+      pieceHint: null,
+      failed: null,
+      redo: [...s.redo, { plies: s.plies.slice(ply), evals: s.evals.slice(ply + 1) }],
+      messages: [
+        ...s.messages,
+        message('info', `Went back to ${label} to play on from there.`, undefined, { context: s.plies.map((p) => p.uci) }),
+      ],
+    }))
+    const after = stateRef.current
+    if (buildGame(after.plies).turn() !== after.userColor[0]) void runBot()
   }
 
   /** Put back what the last Take back removed, grades and all. */
@@ -609,7 +672,7 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
     canReview,
     actions: {
       newGame, playMove, tryAgain, continueGame, undo, forward, retryFailed, requestIdea, revealPiece,
-      openReview, closeReview, resign, setRetryMode, setCoachMode, setVoice,
+      openReview, closeReview, resign, rewindTo, playOnFrom, setRetryMode, setCoachMode, setVoice,
     },
   }
 }

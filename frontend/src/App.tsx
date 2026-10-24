@@ -37,6 +37,8 @@ export default function App() {
   const [config, setConfig] = useState<CoachConfig>({ voice: false })
   const puzzles = usePuzzles()
   const coach = useCoachGame(puzzles.refresh)
+  // A solved puzzle played on is a graded game of its own, so the game in Play isn't touched.
+  const puzzleGame = useCoachGame(puzzles.refresh)
   const savedGames = useSavedGames()
   // Playing a game, doing puzzles from your mistakes, or looking at saved games (the game waits meanwhile).
   const [mode, setMode] = useState<Mode>('play')
@@ -92,7 +94,7 @@ export default function App() {
     practice.stop()
     setInstant(true)
     setMode(next)
-    if (next === 'puzzles' && !puzzles.puzzle) void puzzles.load()
+    if (next === 'puzzles') puzzles.refresh()
     if (next === 'saved') savedGames.refresh()
   }
 
@@ -139,18 +141,31 @@ export default function App() {
     setInstant(true)
     setViewPly(ply === null || ply >= plies.length ? null : Math.max(1, ply))
   }
+  // In a coached game you can play on from the position you're looking at: moving there takes back what came after.
+  const yourTurnThere = viewing !== null && viewing % 2 === (userColor === 'white' ? 0 : 1)
+  const canPlayHere = coach.coached && viewing !== null && phase !== 'bot' && phase !== 'grading'
+  const playFromHere = (uci?: string) => {
+    if (viewing === null) return
+    actions.rewindTo(viewing)
+    if (uci) actions.playMove(uci)
+  }
   const browse = useMemo((): BoardPreview | null => {
     if (viewing === null) return null
     const ply = plies[viewing - 1]
+    const hint = !canPlayHere
+      ? '⏭ goes back to the game.'
+      : yourTurnThere
+        ? 'Make a move to play on from here (later moves are taken back), or ⏭ to go back.'
+        : '↩ Play from here lets your opponent move, or ⏭ goes back.'
     return {
       fen: buildGame(plies.slice(0, viewing)).fen(),
       from: ply.uci.slice(0, 2),
       to: ply.uci.slice(2, 4),
       played: true,
       badge: coach.gradesHidden ? undefined : ply.grade?.classification,
-      label: `${moveLabel(viewing - 1, ply.san)} · an earlier position. ⏭ goes back to the game.`,
+      label: `${moveLabel(viewing - 1, ply.san)} · an earlier position. ${hint}`,
     }
-  }, [viewing, plies, coach.gradesHidden])
+  }, [viewing, plies, coach.gradesHidden, canPlayHere, yourTurnThere])
 
   const shown = review ? (practiceBoard ? null : reviewPreview) : (preview ?? browse)
   const shownGame = useMemo(() => (shown ? new Chess(shown.fen) : null), [shown])
@@ -188,6 +203,32 @@ export default function App() {
   }, [])
 
   useEffect(() => setInstant(false), [plies.length])
+
+  // Once a puzzle is solved (or played on after seeing the solution), the opponent plays on: a graded game against
+  // the level of your last game.
+  useEffect(() => {
+    const solved = puzzles.puzzle
+    if (!puzzles.playOn || !solved) return
+    const level = coach.level ?? levels.find((l) => l.id === 'casual') ?? levels[0]
+    if (!level) return
+    puzzleGame.actions.playOnFrom(
+      puzzles.playOn,
+      solved.color,
+      level,
+      'graded',
+      `Playing on from the puzzle against ${level.name} (about ${level.elo}).`,
+    )
+    // Only when a new line to play on from comes in.
+  }, [puzzles.playOn])
+  const playingOn = puzzleMode && puzzles.playOn !== null && puzzleGame.phase !== 'setup'
+  const playOnStatus =
+    puzzleGame.phase === 'over'
+      ? (puzzleGame.messages.findLast((m) => m.kind === 'over')?.text ?? 'The game is over.')
+      : puzzleGame.phase === 'bot'
+        ? 'Your opponent is thinking…'
+        : puzzleGame.phase === 'grading'
+          ? 'Checking your move…'
+          : 'Your move.'
 
   // ← and → take back and go forward; in the review they step through the moves instead.
   useEffect(() => {
@@ -240,23 +281,33 @@ export default function App() {
   // What the board shows: a puzzle, a move being retried from the review, a move being previewed, or the game.
   let view: ComponentProps<typeof Board>
   const puzzleBoard = puzzleMode ? puzzles.board : null
-  if (puzzleMode) {
+  if (playingOn) {
+    const color = puzzleGame.userColor
+    const ownChar = color === 'white' ? 'w' : 'b'
+    const final = puzzleGame.plies.at(-1)
+    view = {
+      game: puzzleGame.game,
+      orientation: flipped ? (color === 'white' ? 'black' : 'white') : color,
+      interactive: puzzleGame.phase === 'user' && puzzleGame.game.turn() === ownChar,
+      userColor: ownChar,
+      lastMove: final ? { from: final.uci.slice(0, 2), to: final.uci.slice(2, 4) } : null,
+      badge: final?.grade ? { square: final.uci.slice(2, 4), classification: final.grade.classification } : null,
+      arrows: [],
+      onMove: puzzleGame.actions.playMove,
+    }
+  } else if (puzzleMode) {
     const color = puzzles.puzzle?.color ?? 'white'
     view = {
       game: puzzleBoard?.game ?? new Chess(),
       orientation: flipped ? (color === 'white' ? 'black' : 'white') : color,
       interactive: puzzleBoard?.interactive ?? false,
-      userColor: puzzleBoard?.userColor ?? (color === 'white' ? 'w' : 'b'),
+      userColor: color === 'white' ? 'w' : 'b',
       lastMove: puzzleBoard?.lastMove ?? null,
       badge: puzzleBoard?.badge ?? null,
       arrows: puzzleBoard?.solution
         ? [{ startSquare: puzzleBoard.solution.from, endSquare: puzzleBoard.solution.to, color: BEST_ARROW }]
         : [],
       onMove: (uci) => void puzzles.play(uci),
-      caption:
-        puzzles.explore.length > 0 && puzzleBoard
-          ? `Exploring · ${puzzleBoard.game.turn() === 'w' ? 'White' : 'Black'} to move`
-          : undefined,
     }
   } else if (practiceBoard) {
     view = {
@@ -276,7 +327,7 @@ export default function App() {
     view = {
       game: shownGame,
       orientation,
-      interactive: false,
+      interactive: shown === browse && canPlayHere && yourTurnThere,
       userColor: sideChar,
       lastMove: { from: shown.from, to: shown.to },
       badge: shown.badge ? { square: shown.to, classification: shown.badge } : null,
@@ -284,7 +335,7 @@ export default function App() {
         ...(shown.played ? [] : [{ startSquare: shown.from, endSquare: shown.to, color: MOVE_ARROW }]),
         ...(shown.best ? [{ startSquare: shown.best.from, endSquare: shown.best.to, color: BEST_ARROW }] : []),
       ],
-      onMove: () => {},
+      onMove: shown === browse && canPlayHere ? (uci) => playFromHere(uci) : () => {},
       caption: shown.label,
     }
   } else if (savedMode) {
@@ -356,7 +407,9 @@ export default function App() {
           <EvalBar
             evaluation={
               puzzleMode
-                ? puzzles.evaluation
+                ? playingOn
+                  ? (puzzleGame.evals.findLast((e) => e != null) ?? null)
+                  : null
                 : savedMode
                   ? reviewEvaluation
                   : phase === 'setup' || coach.gradesHidden
@@ -379,18 +432,19 @@ export default function App() {
           ) : puzzleMode ? (
             <PuzzlePanel
               summary={puzzles.summary}
+              list={puzzles.list}
               puzzle={puzzles.puzzle}
               status={puzzles.status}
               attempt={puzzles.attempt}
               scheduled={puzzles.scheduled}
               loading={puzzles.loading}
-              onStart={(early) => void puzzles.load(early)}
+              playOn={playingOn ? { plies: puzzleGame.plies, status: playOnStatus } : null}
+              onNext={() => void puzzles.next()}
+              onOpen={(id) => void puzzles.open(id)}
+              onClose={puzzles.close}
               onTryAgain={puzzles.tryAgain}
               onShowSolution={puzzles.showSolution}
               onRemove={() => void puzzles.remove()}
-              explored={puzzles.explore.length}
-              onUndoExplore={puzzles.undoExplore}
-              onResetExplore={puzzles.resetExplore}
             />
           ) : savedMode ? (
             review && savedGames.open ? (
@@ -535,6 +589,11 @@ export default function App() {
                 <button onClick={() => stepTo(null)} disabled={viewing === null} title="Back to the game">
                   ⏭
                 </button>
+                {canPlayHere && (
+                  <button className="primary" onClick={() => playFromHere()} title="Take back everything after this position and play on">
+                    ↩ Play from here
+                  </button>
+                )}
               </div>
               <MoveList
                 plies={plies}
