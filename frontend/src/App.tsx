@@ -8,10 +8,12 @@ import { GameReview } from './components/GameReview'
 import { MoveList } from './components/MoveList'
 import { NewGame } from './components/NewGame'
 import { PuzzlePanel } from './components/PuzzlePanel'
+import { SavedGames, matchup, savedOn } from './components/SavedGames'
 import type { BoardPreview } from './moveRefs'
 import { openingOf, previewMove } from './review'
-import { buildGame, moveLabel, useCoachGame, type CoachMode, type RetryMode } from './useCoachGame'
+import { buildGame, moveLabel, useCoachGame, type CoachMode, type RetryMode, type ReviewSnapshot } from './useCoachGame'
 import { usePuzzles } from './usePuzzles'
+import { useSavedGames } from './useSavedGames'
 import { useReviewPractice } from './useReviewPractice'
 import { canSpeak, setServerVoice, setVoiceName, speak, stopSpeaking } from './voice'
 
@@ -29,13 +31,17 @@ function savedVoice(): string | null {
   }
 }
 
+type Mode = 'play' | 'puzzles' | 'saved'
+
 export default function App() {
   const [config, setConfig] = useState<CoachConfig>({ voice: false })
   const puzzles = usePuzzles()
   const coach = useCoachGame(puzzles.refresh)
-  // Playing a game, or doing puzzles from your mistakes (the game waits meanwhile).
-  const [mode, setMode] = useState<'play' | 'puzzles'>('play')
+  const savedGames = useSavedGames()
+  // Playing a game, doing puzzles from your mistakes, or looking at saved games (the game waits meanwhile).
+  const [mode, setMode] = useState<Mode>('play')
   const puzzleMode = mode === 'puzzles'
+  const savedMode = mode === 'saved'
   const { phase, plies, userColor, actions } = coach
   const [levels, setLevels] = useState<Level[]>([])
   const [backendError, setBackendError] = useState<string | null>(null)
@@ -50,8 +56,9 @@ export default function App() {
     setPreview(move)
   }
 
-  // The game review: the move it's showing on the board, and replaying a move from it.
-  const review = coach.reviewOpen ? coach.review : null
+  // The game review, of the game being played or of a saved game: the move it's showing on the board, and
+  // replaying a move from it.
+  const review = savedMode ? (savedGames.open?.review ?? null) : mode === 'play' && coach.reviewOpen ? coach.review : null
   const [reviewView, setReviewView] = useState<{ ply: number; withBest: boolean } | null>(null)
   const practice = useReviewPractice(review)
   const practiceBoard = review ? practice.board : null
@@ -77,13 +84,46 @@ export default function App() {
     setInstant(true)
     actions.closeReview()
   }
-  const switchMode = (next: 'play' | 'puzzles') => {
+  const switchMode = (next: Mode) => {
     if (next === mode) return
     stopSpeaking()
     setPreview(null)
+    setReviewView(null)
+    practice.stop()
     setInstant(true)
     setMode(next)
     if (next === 'puzzles' && !puzzles.puzzle) void puzzles.load()
+    if (next === 'saved') savedGames.refresh()
+  }
+
+  // Saving the game under review (the button then says so), and opening and deleting saved games.
+  const [savedReview, setSavedReview] = useState<ReviewSnapshot | null>(null)
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'failed'>('idle')
+  const saveReview = async () => {
+    const snapshot = coach.review
+    if (!snapshot || saveState === 'saving') return
+    setSaveState('saving')
+    try {
+      await savedGames.save(snapshot, coach.level ? `${coach.level.name} (~${coach.level.elo})` : null, coach.assistance)
+      setSavedReview(snapshot)
+      setSaveState('idle')
+    } catch {
+      setSaveState('failed')
+    }
+  }
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const openSaved = (id: string) => {
+    setReviewView(null)
+    practice.stop()
+    setConfirmDelete(false)
+    setInstant(true)
+    void savedGames.show(id)
+  }
+  const closeSaved = () => {
+    setReviewView(null)
+    practice.stop()
+    setInstant(true)
+    savedGames.close()
   }
   // Looking back at an earlier position of the game (the number of moves played by then); null for the current one.
   // It never changes the game, and the board can't be moved until you're back at the current position.
@@ -154,7 +194,7 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return
-      if ((e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') || puzzleMode) return
+      if ((e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') || puzzleMode || (savedMode && !review)) return
       if (!review && !coach.coached) {
         // Outside coached games the arrows step through the game (there are no take-backs).
         const at = viewing ?? plies.length
@@ -176,7 +216,10 @@ export default function App() {
   const voiceAvailable = config.voice || canSpeak()
 
   const userChar = userColor === 'white' ? 'w' : 'b'
-  const orientation = flipped ? (userColor === 'white' ? 'black' : 'white') : userColor
+  // The side the board faces: yours in the game on show (a saved game's may differ from the current game's).
+  const side = review?.userColor ?? userColor
+  const sideChar = side === 'white' ? 'w' : 'b'
+  const orientation = flipped ? (side === 'white' ? 'black' : 'white') : side
   const last = plies.at(-1)
   const evaluation: Eval | null =
     viewing !== null
@@ -220,7 +263,7 @@ export default function App() {
       game: practiceBoard.game,
       orientation,
       interactive: practiceBoard.interactive,
-      userColor: userChar,
+      userColor: sideChar,
       lastMove: practiceBoard.lastMove,
       badge: practiceBoard.badge,
       arrows: practiceBoard.best
@@ -234,7 +277,7 @@ export default function App() {
       game: shownGame,
       orientation,
       interactive: false,
-      userColor: userChar,
+      userColor: sideChar,
       lastMove: { from: shown.from, to: shown.to },
       badge: shown.badge ? { square: shown.to, classification: shown.badge } : null,
       arrows: [
@@ -243,6 +286,19 @@ export default function App() {
       ],
       onMove: () => {},
       caption: shown.label,
+    }
+  } else if (savedMode) {
+    // A saved game's final position, or an empty board while choosing one.
+    const final = review?.plies.at(-1)
+    view = {
+      game: review ? buildGame(review.plies) : new Chess(),
+      orientation,
+      interactive: false,
+      userColor: sideChar,
+      lastMove: final ? { from: final.uci.slice(0, 2), to: final.uci.slice(2, 4) } : null,
+      badge: final?.grade ? { square: final.uci.slice(2, 4), classification: final.grade.classification } : null,
+      arrows: [],
+      onMove: () => {},
     }
   } else {
     view = {
@@ -270,23 +326,26 @@ export default function App() {
         <h1>
           <span aria-hidden>♞</span> Chess Coach
         </h1>
-        {!puzzleMode && coach.level && phase !== 'setup' && (
+        {mode === 'play' && coach.level && phase !== 'setup' && (
           <span className="muted">
             vs {coach.level.name} (~{coach.level.elo}) · you play {userColor}
           </span>
         )}
-        {!puzzleMode && opening && phase !== 'setup' && (
+        {mode === 'play' && opening && phase !== 'setup' && (
           <span className="opening-name" title={`${opening.eco ?? ''} ${opening.name}`.trim()}>
             📖 {opening.name}
           </span>
         )}
         <nav className="mode-switch" aria-label="Mode">
-          <button className={puzzleMode ? '' : 'active'} onClick={() => switchMode('play')} aria-pressed={!puzzleMode}>
+          <button className={mode === 'play' ? 'active' : ''} onClick={() => switchMode('play')} aria-pressed={mode === 'play'}>
             ♟ Play
           </button>
           <button className={puzzleMode ? 'active' : ''} onClick={() => switchMode('puzzles')} aria-pressed={puzzleMode}>
             🧩 Puzzles
             {!!puzzles.summary?.due && <span className="count">{puzzles.summary.due}</span>}
+          </button>
+          <button className={savedMode ? 'active' : ''} onClick={() => switchMode('saved')} aria-pressed={savedMode}>
+            📁 Saved
           </button>
         </nav>
       </header>
@@ -298,7 +357,9 @@ export default function App() {
             evaluation={
               puzzleMode
                 ? puzzles.evaluation
-                : phase === 'setup' || coach.gradesHidden
+                : savedMode
+                  ? reviewEvaluation
+                  : phase === 'setup' || coach.gradesHidden
                   ? null
                   : (reviewEvaluation ?? evaluation)
             }
@@ -331,6 +392,38 @@ export default function App() {
               onUndoExplore={puzzles.undoExplore}
               onResetExplore={puzzles.resetExplore}
             />
+          ) : savedMode ? (
+            review && savedGames.open ? (
+              <GameReview
+                review={review}
+                selected={practice.practice?.ply ?? reviewView?.ply ?? null}
+                onSelect={selectReviewMove}
+                practice={practice.practice}
+                onPractice={(ply) => {
+                  setReviewView(null)
+                  setInstant(true)
+                  practice.start(ply)
+                }}
+                onTryAgain={practice.tryAgain}
+                onShowBest={practice.showBest}
+                onStopPractice={practice.stop}
+                onClose={closeSaved}
+                closeLabel="← Saved games"
+                subtitle={`${matchup(savedGames.open.summary)} · ${savedOn(savedGames.open.summary.saved)}`}
+                actions={
+                  confirmDelete ? (
+                    <>
+                      <button onClick={() => void savedGames.remove(savedGames.open!.summary.id)}>Delete for good</button>
+                      <button onClick={() => setConfirmDelete(false)}>Keep it</button>
+                    </>
+                  ) : (
+                    <button onClick={() => setConfirmDelete(true)}>🗑 Delete</button>
+                  )
+                }
+              />
+            ) : (
+              <SavedGames games={savedGames.games} onOpen={openSaved} onDelete={(id) => void savedGames.remove(id)} />
+            )
           ) : settingUp ? (
             levels.length > 0 ? (
               <NewGame
@@ -362,6 +455,22 @@ export default function App() {
               onShowBest={practice.showBest}
               onStopPractice={practice.stop}
               onClose={closeReview}
+              actions={
+                <button
+                  className={savedReview === review ? '' : 'primary'}
+                  onClick={() => void saveReview()}
+                  disabled={savedReview === review || saveState === 'saving'}
+                  title="Keep this game in Saved, to go over it again later"
+                >
+                  {savedReview === review
+                    ? '✓ Saved'
+                    : saveState === 'saving'
+                      ? 'Saving…'
+                      : saveState === 'failed'
+                        ? "Couldn't save: try again"
+                        : '💾 Save game'}
+                </button>
+              }
             />
           ) : (
             <>

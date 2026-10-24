@@ -133,6 +133,24 @@ export interface PuzzleSummary {
   next_due: string | null
 }
 
+/** A saved game as listed (see backend/app/games.py). */
+export interface SavedGameSummary {
+  id: string
+  saved: string
+  moves: number
+  color: 'white' | 'black'
+  /** How it ended, or null if it was saved before the end. */
+  result: string | null
+  /** e.g. "Casual (~1400)" */
+  opponent: string | null
+  assistance: string | null
+  opening: string | null
+  accuracy: number | null
+  opponent_accuracy: number | null
+}
+
+export type SaveGameRequest = Omit<SavedGameSummary, 'id' | 'saved' | 'moves'> & { snapshot: unknown }
+
 export const api = {
   config: () => request<CoachConfig>('/config'),
   levels: () => request<Level[]>('/levels'),
@@ -142,6 +160,13 @@ export const api = {
   grade: (moves: string[], signal?: AbortSignal) => request<MoveGrade>('/grade', { moves }, signal),
   botMove: (moves: string[], level: string, signal?: AbortSignal) =>
     request<MoveGrade>('/bot-move', { moves, level }, signal),
+  games: {
+    list: () => request<SavedGameSummary[]>('/games'),
+    /** A saved game in full: its summary plus the review snapshot the page saved. */
+    get: <Snapshot>(id: string) => request<SavedGameSummary & { snapshot: Snapshot }>(`/games/${id}`),
+    save: (body: SaveGameRequest) => request<{ id: string }>('/games', body),
+    remove: (id: string) => request<{ removed: boolean }>(`/games/${id}`, undefined, undefined, 'DELETE'),
+  },
   puzzles: {
     summary: () => request<PuzzleSummary>('/puzzles'),
     next: (early: boolean) => request<Puzzle | null>(`/puzzles/next${early ? '?early=true' : ''}`),

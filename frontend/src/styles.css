@@ -601,6 +601,22 @@ button.move-ref:focus-visible {
   margin: 0;
   font-size: 1.3rem;
 }
+.review-subhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.review-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.review-actions button {
+  padding: 6px 12px;
+  font-size: 0.9rem;
+}
 .review-body {
   flex: 1;
   min-height: 0;

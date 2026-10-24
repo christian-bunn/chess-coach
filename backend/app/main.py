@@ -27,6 +27,7 @@ from .guide import plan
 from .grading import RETRY_CLASSIFICATIONS, Eval, MoveGrade, grade_move, san_line
 from .levels import DEFAULT_LEVEL, LEVELS, LEVELS_BY_ID
 from .openings import load as load_openings, mark_book
+from .games import GameStore
 from .puzzles import Puzzle, PuzzleStore
 from .speech import MAX_TEXT, Speech, voice_label
 
@@ -42,6 +43,7 @@ async def lifespan(app: FastAPI):
     app.state.engines = engines
     await asyncio.to_thread(load_openings)
     app.state.puzzles = PuzzleStore(settings.progress_dir / "puzzles.json")
+    app.state.games = GameStore(settings.progress_dir / "games.json")
     speech = Speech(settings.voices_dir, settings.voice)
     speech.start()
     app.state.speech = speech
@@ -69,6 +71,25 @@ class HintIn(MovesIn):
 
 class AttemptIn(BaseModel):
     uci: str = Field(min_length=4, max_length=5)
+
+
+class SavedPly(BaseModel, extra="allow"):
+    uci: str  # plus san, grade and anything else the page keeps; stored as they are
+
+
+class SavedSnapshot(BaseModel, extra="allow"):
+    plies: list[SavedPly] = Field(max_length=2000)  # plus evals, userColor and result, stored as they are
+
+
+class SaveGameIn(BaseModel):
+    snapshot: SavedSnapshot  # the game review as the page holds it
+    color: Literal["white", "black"]
+    result: str | None = Field(None, max_length=200)
+    opponent: str | None = Field(None, max_length=100)  # e.g. "Casual (~1400)"
+    assistance: str | None = Field(None, max_length=20)
+    opening: str | None = Field(None, max_length=200)
+    accuracy: float | None = None
+    opponent_accuracy: float | None = None
 
 
 class ResultIn(BaseModel):
@@ -324,4 +345,42 @@ async def puzzle_result(pid: str, body: ResultIn, request: Request) -> Puzzle:
 async def remove_puzzle(pid: str, request: Request) -> dict:
     _puzzle(request, pid)
     _puzzles(request).remove(pid)
+    return {"removed": True}
+
+
+# ----------------------------------------------------------------------------------- saved games
+
+
+def _games(request: Request) -> GameStore:
+    return request.app.state.games
+
+
+@app.get("/api/games")
+async def saved_games(request: Request) -> list[dict]:
+    """The saved games, newest first: what each was, without its moves."""
+    return _games(request).list()
+
+
+@app.get("/api/games/{gid}")
+async def saved_game(gid: str, request: Request) -> dict:
+    """A saved game in full, with the review the page saved."""
+    game = _games(request).get(gid)
+    if game is None:
+        raise HTTPException(404, "No such saved game")
+    return game
+
+
+@app.post("/api/games")
+async def save_game(body: SaveGameIn, request: Request) -> dict:
+    """Save a game from its review. Its moves must make a legal game."""
+    _replay([p.uci for p in body.snapshot.plies])
+    summary = body.model_dump(exclude={"snapshot"})
+    game = _games(request).add(body.snapshot.model_dump(), **summary)
+    return {"id": game["id"]}
+
+
+@app.delete("/api/games/{gid}")
+async def remove_saved_game(gid: str, request: Request) -> dict:
+    if not _games(request).remove(gid):
+        raise HTTPException(404, "No such saved game")
     return {"removed": True}

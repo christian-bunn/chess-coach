@@ -1,4 +1,4 @@
-import { useMemo, type MouseEvent } from 'react'
+import { useMemo, type MouseEvent, type ReactNode } from 'react'
 import { GRADE_META } from '../grades'
 import { REVIEW_GRADES, accuracy, countGrades, hadBetter, keyMoments, openingOf, sideGrades, winningChances } from '../review'
 import { moveLabel, type ReviewSnapshot } from '../useCoachGame'
@@ -16,6 +16,12 @@ interface GameReviewProps {
   onShowBest: () => void
   onStopPractice: () => void
   onClose: () => void
+  /** The close button's text ("← Back to the game", "← Saved games"). */
+  closeLabel?: string
+  /** A line under the title, e.g. who the game was against and when. */
+  subtitle?: string
+  /** Extra buttons for the top of the review: saving the game, or deleting a saved one. */
+  actions?: ReactNode
 }
 
 export function GameReview({
@@ -28,7 +34,13 @@ export function GameReview({
   onShowBest,
   onStopPractice,
   onClose,
+  closeLabel = '← Back to the game',
+  subtitle,
+  actions,
 }: GameReviewProps) {
+  // The move the review is on, for stepping: the one selected, or the last.
+  const plyCount = review.plies.length
+  const at = selected ?? plyCount
   const summary = useMemo(() => {
     const mine = sideGrades(review, true)
     const theirs = sideGrades(review, false)
@@ -44,8 +56,14 @@ export function GameReview({
     <section className="review" aria-label="Game review">
       <div className="review-head">
         <h2>Game review</h2>
-        <button onClick={onClose}>← Back to the game</button>
+        <button onClick={onClose}>{closeLabel}</button>
       </div>
+      {(subtitle || actions) && (
+        <div className="review-subhead">
+          {subtitle && <span className="muted">{subtitle}</span>}
+          {actions && <div className="review-actions">{actions}</div>}
+        </div>
+      )}
       <div className="review-body">
         {review.result && <p className="review-result">{review.result}</p>}
         {opening && (
@@ -84,6 +102,20 @@ export function GameReview({
         </table>
 
         <EvalGraph review={review} selected={selected} onSelect={onSelect} />
+        <div className="move-nav" aria-label="Step through the game">
+          <button onClick={() => onSelect(1)} disabled={plyCount === 0 || at === 1} title="First move">
+            ⏮
+          </button>
+          <button onClick={() => onSelect(Math.max(1, at - 1))} disabled={at <= 1} title="Previous move (←)">
+            ◀
+          </button>
+          <button onClick={() => onSelect(Math.min(plyCount, at + 1))} disabled={at >= plyCount} title="Next move (→)">
+            ▶
+          </button>
+          <button onClick={() => onSelect(plyCount)} disabled={plyCount === 0 || selected === plyCount} title="Last move">
+            ⏭
+          </button>
+        </div>
 
         <h3>Key moments</h3>
         {summary.moments.length === 0 ? (

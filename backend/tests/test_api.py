@@ -8,6 +8,7 @@ from app.config import find_stockfish
 from app.grading import grade_move
 from app.levels import LEVELS
 from app.main import app
+from app.games import GameStore
 from app.puzzles import PuzzleStore
 
 try:
@@ -204,3 +205,22 @@ def test_puzzles_from_mistakes(client, tmp_path):
     assert after["streak"] == 1 and after["reviews"] == 1
     assert client.delete(f"/api/puzzles/{pid}").json() == {"removed": True}
     assert client.post(f"/api/puzzles/{pid}/result", json={"solved": True}).status_code == 404
+
+
+def test_saved_games(client, tmp_path):
+    client.app.state.games = GameStore(tmp_path / "games.json")
+    plies = [{"uci": "e2e4", "san": "e4", "grade": {"classification": "book"}}, {"uci": "e7e5", "san": "e5", "grade": None}]
+    body = {"snapshot": {"plies": plies, "evals": [None] * 3, "userColor": "white", "result": None}, "color": "white",
+            "opponent": "Casual (~1400)", "opening": "King's Pawn Game"}
+    gid = client.post("/api/games", json=body)
+    assert gid.status_code == 200, gid.text
+    gid = gid.json()["id"]
+    [listed] = client.get("/api/games").json()
+    assert listed["id"] == gid and listed["moves"] == 2 and listed["opening"] == "King's Pawn Game"
+    saved = client.get(f"/api/games/{gid}").json()
+    assert saved["snapshot"]["plies"] == plies and saved["snapshot"]["userColor"] == "white"
+    # The moves must make a legal game.
+    bad = {**body, "snapshot": {**body["snapshot"], "plies": [{"uci": "e2e5"}]}}
+    assert client.post("/api/games", json=bad).status_code == 400
+    assert client.delete(f"/api/games/{gid}").json() == {"removed": True}
+    assert client.get(f"/api/games/{gid}").status_code == 404

@@ -141,8 +141,9 @@ opens it at any point during the game too.
   harmonic mean, so a couple of blunders pull it down more than a plain average would.
 - **Grade counts:** how many great moves, best moves, book moves, inaccuracies, mistakes, misses and
   blunders each side played, under the name of the opening the game reached.
-- **Graph:** your winning chances move by move, with a dot on each key moment. Click it, or use ← and →,
-  to see the position after any move, with the move's badge on the piece and the eval bar for that position.
+- **Graph:** your winning chances move by move, with a dot on each key moment. Click it, step with
+  **⏮ ◀ ▶ ⏭** under it, or use ← and →, to see the position after any move, with the move's badge on the piece
+  and the eval bar for that position.
 - **Key moments:** your great moves, mistakes, missed wins, blunders and missed mates, with the coach's
   comment on each. Click one to see it on the board. **Show best move** draws the engine's move in green
   next to yours in blue.
@@ -174,6 +175,14 @@ them; the number on it is how many are due. Your game waits while you do puzzles
 - **Where they're kept:** `progress/puzzles.json` in the project folder (git-ignored), so they last across
   games and browsers. Set `COACH_PROGRESS_DIR` to keep them somewhere else.
 
+## Saved games
+
+**💾 Save game** at the top of the game review keeps the game, review and all, in **📁 Saved** (top right,
+next to Play and Puzzles). The list shows who each game was against, when, how it ended, the opening and both
+accuracies. **Open review** brings the whole review back (graph, key moments, Retry, stepping through the
+moves), and **Delete** removes a game after asking. Saved games are kept in `progress/games.json`
+(git-ignored), next to the puzzles.
+
 ## Run
 
 ```bash
@@ -198,6 +207,7 @@ cd backend && .venv/bin/python -m pytest
 - `tests/test_openings.py` checks opening names and book moves, including transpositions and the traps in
   the list.
 - `tests/test_puzzles.py` checks the puzzle schedule (with a fake clock), repeats, and saving to disk.
+- `tests/test_games.py` checks saving, listing and deleting saved games.
 
 ## How moves are graded
 
@@ -240,7 +250,7 @@ Thresholds are constants at the top of `backend/app/grading.py`.
 ```
 backend/app/
   main.py      FastAPI routes: /api/levels, /api/config, /api/analyze, /api/grade, /api/bot-move,
-               /api/hint, /api/puzzles..., /api/speech, /api/voices
+               /api/hint, /api/puzzles..., /api/games..., /api/speech, /api/voices
   engine.py    Two Stockfish processes (analysis + opponent), position cache, null-move threat search
   grading.py   win%, material counting, classification -> MoveGrade
   facts.py     Why a bad move is bad, and whether a threat is real, from the engine's lines
@@ -250,6 +260,7 @@ backend/app/
   speech.py    The coach's voice: text to speech with Piper
   openings.py  Opening names and book moves, from Lichess's openings list
   puzzles.py   Puzzles from your mistakes, with spaced repetition
+  games.py     Games saved from the review
   levels.py    Opponent strength presets
   config.py    Settings from env vars (COACH_ANALYSIS_DEPTH, COACH_ENGINE_THREADS, ...)
 backend/data/openings/  Lichess's openings list (a.tsv ... e.tsv: ECO code, name, moves)
@@ -258,9 +269,10 @@ frontend/src/
   review.ts             Game review: accuracy, grade counts, key moments
   useReviewPractice.ts  Retrying a move from the review without touching the game
   usePuzzles.ts         Puzzles from your mistakes: the current one, your tries, and its schedule
+  useSavedGames.ts      Saved games: the list, the one open, saving and deleting
   voice.ts              Playing the coach's voice, with notation turned into words
   moveRefs.ts           Finding the moves a coach message mentions, so they can be shown on the board
-  components/           Board, EvalBar, CoachPanel, GameReview, PuzzlePanel, MoveList, NewGame
+  components/           Board, EvalBar, CoachPanel, GameReview, PuzzlePanel, SavedGames, MoveList, NewGame
 ```
 
 The API is stateless. The client sends the whole move list (UCI, starting from the initial position) with every
@@ -274,7 +286,7 @@ request, and the server caches analysis by position.
 4. ~~Game review: accuracy, grade counts, eval graph, and retrying your mistakes~~
 5. ~~Opening names and book moves~~
 6. ~~Puzzles from your own mistakes, with spaced repetition~~
-7. Saved games
+7. ~~Saved games~~
 
 The opening names come from [lichess-org/chess-openings](https://github.com/lichess-org/chess-openings),
 which is in the public domain (CC0).
