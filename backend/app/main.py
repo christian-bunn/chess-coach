@@ -29,7 +29,7 @@ from .levels import DEFAULT_LEVEL, LEVELS, LEVELS_BY_ID
 from .openings import load as load_openings, mark_book
 from .games import GameStore
 from .puzzles import Puzzle, PuzzleStore
-from .speech import MAX_TEXT, Speech, voice_label
+from .speech import MAX_TEXT, Speech
 
 log = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ async def lifespan(app: FastAPI):
     await asyncio.to_thread(load_openings)
     app.state.puzzles = PuzzleStore(settings.progress_dir / "puzzles.json")
     app.state.games = GameStore(settings.progress_dir / "games.json")
-    speech = Speech(settings.voices_dir, settings.voice)
+    speech = Speech(settings.voices_dir)
     speech.start()
     app.state.speech = speech
     try:
@@ -98,7 +98,6 @@ class ResultIn(BaseModel):
 
 class SpeechIn(BaseModel):
     text: str = Field(min_length=1, max_length=MAX_TEXT)
-    voice: str | None = None  # one of /api/voices; default: the server's default voice
 
 
 @dataclass
@@ -190,20 +189,7 @@ async def speech(body: SpeechIn, request: Request) -> Response:
     voice: Speech = request.app.state.speech
     if not voice.available:
         raise HTTPException(503, "The coach's voice isn't set up (see README: Speak)")
-    try:
-        audio = await voice.wav(body.text, body.voice)
-    except ValueError as error:
-        raise HTTPException(400, str(error))
-    return Response(audio, media_type="audio/wav")
-
-
-@app.get("/api/voices")
-async def voices(request: Request) -> dict:
-    """The installed voices the student can choose from, and the default one."""
-    voice: Speech = request.app.state.speech
-    if not voice.available:
-        return {"voices": [], "default": None}
-    return {"voices": [{"name": n, "label": voice_label(n)} for n in voice.voices()], "default": voice.default}
+    return Response(await voice.wav(body.text), media_type="audio/wav")
 
 
 @app.get("/api/levels")

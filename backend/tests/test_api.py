@@ -145,14 +145,8 @@ def test_hint_only_on_the_students_move(client):
 
 class FakeSpeech:
     available = True
-    default = "en_US-ryan-high"
 
-    def voices(self):
-        return ["en_US-joe-medium", "en_US-ryan-high"]
-
-    async def wav(self, text, voice=None):
-        if voice not in (None, *self.voices()):
-            raise ValueError("Unknown voice")
+    async def wav(self, text):
         return b"RIFF" + text.encode()
 
 
@@ -170,12 +164,6 @@ def test_speech_returns_audio(client):
         assert response.headers["content-type"] == "audio/wav"
         assert response.content == b"RIFFKnight takes e4"
         assert client.get("/api/config").json()["voice"] is True
-        assert client.get("/api/voices").json() == {
-            "voices": [{"name": "en_US-joe-medium", "label": "Joe"}, {"name": "en_US-ryan-high", "label": "Ryan (high quality)"}],
-            "default": "en_US-ryan-high",
-        }
-        assert client.post("/api/speech", json={"text": "Hi", "voice": "en_US-joe-medium"}).status_code == 200
-        assert client.post("/api/speech", json={"text": "Hi", "voice": "en_US-nobody"}).status_code == 400
     finally:
         client.app.state.speech = real
 

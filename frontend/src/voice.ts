@@ -44,16 +44,10 @@ export function speakable(text: string): string {
 }
 
 let serverVoice = false
-let voiceName: string | null = null
 
 /** Tell the voice whether the backend can make speech (from /api/config). */
 export function setServerVoice(available: boolean) {
   serverVoice = available
-}
-
-/** Which of the backend's voices to use (null: its default). */
-export function setVoiceName(name: string | null) {
-  voiceName = name
 }
 
 function browserHasVoices(): boolean {
@@ -108,7 +102,7 @@ function fetchClip(text: string): Promise<string | null> {
   return fetch('/api/speech', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, voice: voiceName }),
+    body: JSON.stringify({ text }),
   })
     .then((response) => (response.ok ? response.blob() : null))
     .then((blob) => (blob ? URL.createObjectURL(blob) : null))

@@ -27,9 +27,8 @@ cd backend
 python3 -m venv .venv            # on Ubuntu this needs: sudo apt install python3-venv
 .venv/bin/pip install -r requirements.txt
 
-# The coach's voice (optional, downloaded once from huggingface.co/rhasspy/piper-voices):
-# Ryan is the default (120 MB); add any other voices you'd like to choose from in Settings
-.venv/bin/python -m piper.download_voices --download-dir ../voices en_US-ryan-high
+# The coach's voice, Joe (optional, about 60 MB, downloaded once from huggingface.co/rhasspy/piper-voices):
+.venv/bin/python -m piper.download_voices --download-dir ../voices en_US-joe-medium
 
 # Frontend
 cd ../frontend
@@ -62,9 +61,8 @@ inaccuracy notes, plus your hints, aloud.
 - **The voice:** [Piper](https://github.com/OHF-Voice/piper1-gpl), natural-sounding voice models that
   run offline on your CPU. The backend makes the audio and the page plays it, so it works in any browser,
   including the Claude desktop app's, which has no voices of its own.
-- **Choosing a voice:** pick one under **⚙ Settings → Voice**, and use **▶ Test** to hear it. Every model
-  in `voices/` is listed. The default is Ryan, the high-quality male US voice; Joe, Norman and Lessac are
-  the others downloaded so far.
+- **Joe:** the coach always speaks with Joe, a natural US male voice (the Piper model `en_US-joe-medium` in
+  `voices/`).
 - **Smoother speech:** each comment is spoken at one even volume, with a short pause between sentences
   and a slightly calm pace. (Piper on its own runs sentences together and sets each one's volume
   separately, which sounds choppy.)
@@ -73,8 +71,8 @@ inaccuracy notes, plus your hints, aloud.
   replying (its move is worked out in the meantime), so the board stays in step with the voice.
 - **Interruptions:** only your own move stops what's being read. If the browser pauses a comment on its own,
   it picks up where it left off.
-- **Settings:** set `COACH_VOICE` to a voice name to change the default, or to `off`. Without any voice
-  models, Speak falls back to the browser's own voice where there is one.
+- **Settings:** set `COACH_VOICE=off` to turn the voice off. Without Joe's model, Speak falls back to the
+  browser's own voice where there is one.
 
 ## Reading moves
 
@@ -93,26 +91,19 @@ In **New game**, choose how much help the game gets. The choice is remembered fo
   there are no hints, comments, retries or take-backs.
 - **⚔ Unassisted:** a real game: no hints, take-backs, retries, comments, grades or evaluation while you play.
 
-In graded and unassisted games, **🏳 Resign** takes the place of Take back and Forward. Moves are graded either
+In graded and unassisted games, **🏳 Resign** gives up the game. Moves are graded either
 way, so when the game ends (or you resign) the grades appear, **📊 Game review** shows how it went, and your
 mistakes still become puzzles.
 
 ## Stepping through the game
 
-**⏮ ◀ ▶ ⏭** above the move list, or clicking a move in it, show the board as it was after that move, with
-its grade badge and evaluation where the game shows them. Looking back never changes the game by itself, and an
-opponent's move doesn't pull you away. In graded and unassisted games the board stays locked until **⏭** brings
-you back, and the ← and → keys step through the game too.
+**⏮ ◀ ▶ ⏭** above the move list, the ← and → keys, or clicking a move in the list show the board as it was
+after that move, with its grade badge and evaluation where the game shows them. Looking back never changes the
+game by itself, and an opponent's move doesn't pull you away.
 
-In a coached game you can also play on from any earlier position: make a move there (or press **↩ Play from
-here** when it's your opponent's move) and everything after it is taken back. **Forward** can still put it back
-until you play a new move. (In coached games ← and → are Take back and Forward.)
-
-## Take back and Forward
-
-**↶ Take back** (or the ← key) undoes your last move and the opponent's reply. **Forward ↷** (or →) puts
-them back, grades and all. You can step back several moves and forward again. Playing a different move
-starts a new line, and Forward then has nothing to replay.
+**Taking moves back (coached games):** step back to any earlier position and make a move there, or press
+**↩ Play from here** when it's your opponent's move, and everything after it is taken back. In graded and
+unassisted games the board stays locked until **⏭** brings you back.
 
 ## Hints
 
@@ -257,14 +248,14 @@ Thresholds are constants at the top of `backend/app/grading.py`.
 ```
 backend/app/
   main.py      FastAPI routes: /api/levels, /api/config, /api/analyze, /api/grade, /api/bot-move,
-               /api/hint, /api/puzzles..., /api/games..., /api/speech, /api/voices
+               /api/hint, /api/puzzles..., /api/games..., /api/speech
   engine.py    Two Stockfish processes (analysis + opponent), position cache, null-move threat search
   grading.py   win%, material counting, classification -> MoveGrade
   facts.py     Why a bad move is bad, and whether a threat is real, from the engine's lines
   coach.py     The coach's comments on your moves
   advice.py    Hints, by level
   guide.py     What matters in a position, for the 💡 Hint
-  speech.py    The coach's voice: text to speech with Piper
+  speech.py    The coach's voice (Joe): text to speech with Piper
   openings.py  Opening names and book moves, from Lichess's openings list
   puzzles.py   Puzzles from your mistakes, with spaced repetition
   games.py     Games saved from the review

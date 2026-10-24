@@ -78,8 +78,6 @@ interface GameState {
   hints: { at: number; idea: boolean; piece: 0 | 1 | 2 }
   /** The piece the "show piece" hint is pointing at, highlighted on the board. */
   pieceHint: string | null
-  /** What Take back removed, most recent last, so Forward can put it back (until a new move is made). */
-  redo: { plies: Ply[]; evals: (Eval | null)[] }[]
   failed: 'grade' | 'bot' | null
   retryMode: RetryMode
   coachMode: CoachMode
@@ -193,7 +191,6 @@ const INITIAL: GameState = {
   hintArrow: null,
   hints: { at: 0, idea: false, piece: 0 },
   pieceHint: null,
-  redo: [],
   failed: null,
   retryMode: 'mistakes',
   coachMode: 'key',
@@ -224,7 +221,7 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
     setState(stateRef.current)
   }
 
-  // Aborting this cancels every in-flight request (on undo / new game) so late replies are ignored.
+  // Aborting this cancels every in-flight request (on going back / a new game) so late replies are ignored.
   const pending = useRef(new AbortController())
   const cancelPending = () => {
     pending.current.abort()
@@ -439,8 +436,7 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
       return // illegal
     }
     stopSpeaking() // the student has moved on
-    // A new move starts a new line, so what was taken back can't be replayed any more.
-    update((s) => ({ ...s, plies: [...s.plies, { uci, san, grade: null }], hintArrow: null, pieceHint: null, redo: [] }))
+    update((s) => ({ ...s, plies: [...s.plies, { uci, san, grade: null }], hintArrow: null, pieceHint: null }))
     void gradeLastMove()
   }
 
@@ -465,31 +461,9 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
     announce(note.id)
   }
 
-  /** Take back the user's last move (and the opponent's reply, if it has been played). */
-  const undo = () => {
-    const s = stateRef.current
-    const userIndex = s.plies.findLastIndex((_, i) => (i % 2 === 0 ? 'w' : 'b') === s.userColor[0])
-    if (userIndex < 0 || s.phase === 'setup' || s.assistance !== 'coached') return
-    cancelPending()
-    const label = moveLabel(userIndex, s.plies[userIndex].san)
-    update((s) => ({
-      ...s,
-      plies: s.plies.slice(0, userIndex),
-      evals: s.evals.slice(0, userIndex + 1),
-      phase: 'user',
-      pendingRetry: null,
-      retryingPly: null,
-      hintArrow: null,
-      pieceHint: null,
-      failed: null,
-      redo: [...s.redo, { plies: s.plies.slice(userIndex), evals: s.evals.slice(userIndex + 1) }],
-      messages: [...s.messages, message('info', `Took back ${label}.`, undefined, { context: s.plies.map((p) => p.uci) })],
-    }))
-  }
-
   /**
-   * Go back to the position after `ply` moves and play on from there (coached games only). Everything after it is
-   * taken back, and Forward can put it back until a new move is made. If it's the opponent's move there, they play.
+   * Go back to the position after `ply` moves and play on from there (coached games only): everything after it is
+   * taken back. If it's the opponent's move there, they play.
    */
   const rewindTo = (ply: number) => {
     const s = stateRef.current
@@ -508,7 +482,6 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
       hintArrow: null,
       pieceHint: null,
       failed: null,
-      redo: [...s.redo, { plies: s.plies.slice(ply), evals: s.evals.slice(ply + 1) }],
       messages: [
         ...s.messages,
         message('info', `Went back to ${label} to play on from there.`, undefined, { context: s.plies.map((p) => p.uci) }),
@@ -516,40 +489,6 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
     }))
     const after = stateRef.current
     if (buildGame(after.plies).turn() !== after.userColor[0]) void runBot()
-  }
-
-  /** Put back what the last Take back removed, grades and all. */
-  const forward = () => {
-    const s = stateRef.current
-    const step = s.redo.at(-1)
-    if (!step || s.phase === 'setup' || s.assistance !== 'coached') return
-    cancelPending()
-    stopSpeaking()
-    const first = s.plies.length
-    const label = moveLabel(first, step.plies[0].san)
-    update((s) =>
-      finishTurn(
-        {
-          ...s,
-          plies: [...s.plies, ...step.plies],
-          evals: [...s.evals, ...step.evals],
-          redo: s.redo.slice(0, -1),
-          pendingRetry: null,
-          retryingPly: null,
-          hintArrow: null,
-          pieceHint: null,
-          failed: null,
-          messages: [
-            ...s.messages,
-            message('info', `Went forward to ${label}.`, undefined, { context: [...s.plies, ...step.plies].map((p) => p.uci) }),
-          ],
-        },
-        'user',
-      ),
-    )
-    // If the opponent's reply wasn't part of what was taken back, it's their move now.
-    const after = stateRef.current
-    if (after.phase === 'user' && buildGame(after.plies).turn() !== after.userColor[0]) void runBot()
   }
 
   const retryFailed = () => {
@@ -649,9 +588,6 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
 
   const game = useMemo(() => buildGame(state.plies), [state.plies])
   const coached = state.assistance === 'coached'
-  const canUndo =
-    coached && state.phase !== 'setup' && state.plies.some((_, i) => (i % 2 === 0 ? 'w' : 'b') === state.userColor[0])
-  const canRedo = coached && state.phase !== 'setup' && state.redo.length > 0
   const hints = state.hints.at === state.plies.length ? state.hints : { idea: false, piece: 0 }
   const myTurn = state.phase === 'user' && game.turn() === state.userColor[0]
   const canReview = state.phase !== 'setup' && state.plies.some((p) => p.grade) && (coached || state.phase === 'over')
@@ -661,8 +597,6 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
   return {
     ...state,
     game,
-    canUndo,
-    canRedo,
     coached,
     canIdea: coached && myTurn && !hints.idea,
     /** 0: "show piece" not used yet, 1: the piece is shown (next press shows the move), 2: both shown. */
@@ -671,7 +605,7 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
     gradesHidden,
     canReview,
     actions: {
-      newGame, playMove, tryAgain, continueGame, undo, forward, retryFailed, requestIdea, revealPiece,
+      newGame, playMove, tryAgain, continueGame, retryFailed, requestIdea, revealPiece,
       openReview, closeReview, resign, rewindTo, playOnFrom, setRetryMode, setCoachMode, setVoice,
     },
   }

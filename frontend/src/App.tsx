@@ -1,6 +1,6 @@
 import { Chess } from 'chess.js'
 import { useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
-import { api, type CoachConfig, type Eval, type Level, type VoiceOption } from './api'
+import { api, type CoachConfig, type Eval, type Level } from './api'
 import { Board } from './components/Board'
 import { CoachPanel } from './components/CoachPanel'
 import { EvalBar } from './components/EvalBar'
@@ -15,21 +15,10 @@ import { buildGame, moveLabel, useCoachGame, type CoachMode, type RetryMode, typ
 import { usePuzzles } from './usePuzzles'
 import { useSavedGames } from './useSavedGames'
 import { useReviewPractice } from './useReviewPractice'
-import { canSpeak, setServerVoice, setVoiceName, speak, stopSpeaking } from './voice'
+import { canSpeak, setServerVoice, stopSpeaking } from './voice'
 
-const VOICE_KEY = 'chess-coach.voice-name'
 const MOVE_ARROW = 'rgba(74, 159, 216, 0.9)'
 const BEST_ARROW = 'rgba(129, 182, 76, 0.9)'
-const VOICE_SAMPLE =
-  "Nice. 12.Nd5 hits the queen on c7 and the bishop on e7 at the same time, so your opponent can't save both."
-
-function savedVoice(): string | null {
-  try {
-    return localStorage.getItem(VOICE_KEY)
-  } catch {
-    return null
-  }
-}
 
 type Mode = 'play' | 'puzzles' | 'saved'
 
@@ -169,36 +158,11 @@ export default function App() {
 
   const shown = review ? (practiceBoard ? null : reviewPreview) : (preview ?? browse)
   const shownGame = useMemo(() => (shown ? new Chess(shown.fen) : null), [shown])
-  const [voices, setVoices] = useState<VoiceOption[]>([])
-  const [voice, setVoice] = useState<string | null>(null)
-
-  const chooseVoice = (name: string, preview: boolean) => {
-    setVoice(name)
-    setVoiceName(name)
-    try {
-      localStorage.setItem(VOICE_KEY, name)
-    } catch {
-      // not remembered; fine
-    }
-    if (preview) {
-      stopSpeaking()
-      speak(VOICE_SAMPLE)
-    }
-  }
-
   useEffect(() => {
     api.levels().then(setLevels, (e: Error) => setBackendError(e.message))
     api.config().then((c) => {
       setServerVoice(c.voice)
       setConfig(c)
-      if (c.voice) {
-        api.voices().then((v) => {
-          setVoices(v.voices)
-          const saved = savedVoice()
-          const name = v.voices.some((x) => x.name === saved) ? saved : v.default
-          if (name) chooseVoice(name, false)
-        }, () => {})
-      }
     }, () => {}) // without it, the built-in comments are used
   }, [])
 
@@ -230,26 +194,23 @@ export default function App() {
           ? 'Checking your move…'
           : 'Your move.'
 
-  // ← and → take back and go forward; in the review they step through the moves instead.
+  // ← and → step through the game (or the review). In a coached game, a move made from an earlier position
+  // takes back what came after it.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return
       if ((e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') || puzzleMode || (savedMode && !review)) return
-      if (!review && !coach.coached) {
-        // Outside coached games the arrows step through the game (there are no take-backs).
-        const at = viewing ?? plies.length
-        if (e.key === 'ArrowLeft') stepTo(at - 1)
-        else if (viewing !== null) stepTo(viewing + 1)
-        return
-      }
       if (review) {
         if (practice.practice) return
         const step = e.key === 'ArrowLeft' ? -1 : 1
         const ply = Math.min(review.plies.length, Math.max(1, (reviewView?.ply ?? (step < 0 ? review.plies.length + 1 : 0)) + step))
         selectReviewMove(ply)
-      } else if (e.key === 'ArrowLeft') actions.undo()
-      else actions.forward()
+        return
+      }
+      const at = viewing ?? plies.length
+      if (e.key === 'ArrowLeft') stepTo(at - 1)
+      else if (viewing !== null) stepTo(viewing + 1)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -547,16 +508,7 @@ export default function App() {
                 onPreview={showPreview}
               />
               <div className="controls">
-                {coach.coached ? (
-                  <>
-                    <button onClick={actions.undo} disabled={!coach.canUndo || !!review} title="Take back your last move (←)">
-                      ↶ Take back
-                    </button>
-                    <button onClick={actions.forward} disabled={!coach.canRedo || !!review} title="Put back what you took back (→)">
-                      Forward ↷
-                    </button>
-                  </>
-                ) : (
+                {!coach.coached && (
                   <button onClick={actions.resign} disabled={phase === 'over'} title="Give up this game">
                     🏳 Resign
                   </button>
@@ -626,23 +578,6 @@ export default function App() {
                   </label>
                 )}
               </div>
-                {voices.length > 0 && (
-                  <div className="setting">
-                    <label>
-                      Voice
-                      <select value={voice ?? ''} onChange={(e) => chooseVoice(e.target.value, true)}>
-                        {voices.map((v) => (
-                          <option key={v.name} value={v.name}>
-                            {v.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <button type="button" onClick={() => voice && chooseVoice(voice, true)} title="Hear this voice">
-                      ▶ Test
-                    </button>
-                  </div>
-                )}
                 <p className="coach-source">Grades, comments and hints all come from Stockfish's analysis.</p>
               </details>
             </>

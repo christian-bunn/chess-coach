@@ -79,11 +79,6 @@ export interface CoachConfig {
   voice: boolean
 }
 
-export interface VoiceOption {
-  name: string
-  label: string
-}
-
 interface PositionRequest {
   moves: string[]
   student_color: 'white' | 'black'
@@ -154,7 +149,6 @@ export type SaveGameRequest = Omit<SavedGameSummary, 'id' | 'saved' | 'moves'> &
 export const api = {
   config: () => request<CoachConfig>('/config'),
   levels: () => request<Level[]>('/levels'),
-  voices: () => request<{ voices: VoiceOption[]; default: string | null }>('/voices'),
   hint: (body: HintRequest, signal?: AbortSignal) => request<HintResult>('/hint', body, signal),
   analyze: (moves: string[], signal?: AbortSignal) => request<Analysis>('/analyze', { moves }, signal),
   grade: (moves: string[], signal?: AbortSignal) => request<MoveGrade>('/grade', { moves }, signal),

@@ -55,7 +55,6 @@ class Settings:
     analysis_threads: int
     hash_mb: int
     voices_dir: Path | None  # Piper voice models for the coach's speech; None turns speech off
-    voice: str | None  # the default voice's name; None picks one
     progress_dir: Path  # the student's own data, such as their puzzles (git-ignored)
 
     @classmethod
@@ -69,8 +68,7 @@ class Settings:
             analysis_lines=int(os.environ.get("COACH_ANALYSIS_LINES", 3)),
             analysis_threads=int(os.environ.get("COACH_ENGINE_THREADS", max(1, min(8, cpus // 2)))),
             hash_mb=int(os.environ.get("COACH_ENGINE_HASH_MB", 256)),
-            # $COACH_VOICE: "off", or the name of the default voice (one of the models in ./voices).
+            # $COACH_VOICE=off turns the coach's voice off.
             voices_dir=None if os.environ.get("COACH_VOICE") == "off" else PROJECT_ROOT / "voices",
-            voice=os.environ.get("COACH_VOICE") or None,
             progress_dir=Path(os.environ.get("COACH_PROGRESS_DIR") or PROJECT_ROOT / "progress"),
         )
