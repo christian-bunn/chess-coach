@@ -84,13 +84,26 @@ at it, or tap it, and the board shows the position at that point with an arrow a
 ("White's move 11: pawn from c2 to c3"). That works for lines that never happened in the game too, such as
 "after 10...Qxd1 11.Raxd1".
 
-## Unassisted games
+## Coached, graded and unassisted games
 
-In **New game**, choose **⚔ Unassisted** instead of **🎓 Coached** for a real game: no hints, take-backs,
-retries, comments, grades or evaluation while you play. **🏳 Resign** takes the place of Take back and Forward.
-Your moves are still graded quietly, so when the game ends (or you resign) the grades appear, **📊 Game
-review** shows how it went, and your mistakes still become puzzles. The choice is remembered for the next
-game.
+In **New game**, choose how much help the game gets. The choice is remembered for the next game.
+
+- **🎓 Coached:** everything on this page: grades, comments, hints, retries and take-backs.
+- **📊 Graded:** every move, yours and your opponent's, gets its grade badge, and the evaluation bar shows, but
+  there are no hints, comments, retries or take-backs.
+- **⚔ Unassisted:** a real game: no hints, take-backs, retries, comments, grades or evaluation while you play.
+
+In graded and unassisted games, **🏳 Resign** takes the place of Take back and Forward. Moves are graded either
+way, so when the game ends (or you resign) the grades appear, **📊 Game review** shows how it went, and your
+mistakes still become puzzles.
+
+## Stepping through the game
+
+**⏮ ◀ ▶ ⏭** above the move list, or clicking a move in it, show the board as it was after that move, with
+its grade badge and evaluation where the game shows them. Looking back never changes the game: the board
+can't be moved until **⏭** brings you back to the current position, and an opponent's move doesn't pull you
+away. In graded and unassisted games the ← and → keys step through the game too. (In coached games they're
+Take back and Forward.)
 
 ## Take back and Forward
 

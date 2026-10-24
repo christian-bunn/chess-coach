@@ -1,5 +1,5 @@
 import { Chess } from 'chess.js'
-import { useEffect, useMemo, useState, type ComponentProps } from 'react'
+import { useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
 import { api, type CoachConfig, type Eval, type Level, type VoiceOption } from './api'
 import { Board } from './components/Board'
 import { CoachPanel } from './components/CoachPanel'
@@ -10,7 +10,7 @@ import { NewGame } from './components/NewGame'
 import { PuzzlePanel } from './components/PuzzlePanel'
 import type { BoardPreview } from './moveRefs'
 import { openingOf, previewMove } from './review'
-import { useCoachGame, type CoachMode, type RetryMode } from './useCoachGame'
+import { buildGame, moveLabel, useCoachGame, type CoachMode, type RetryMode } from './useCoachGame'
 import { usePuzzles } from './usePuzzles'
 import { useReviewPractice } from './useReviewPractice'
 import { canSpeak, setServerVoice, setVoiceName, speak, stopSpeaking } from './voice'
@@ -66,6 +66,7 @@ export default function App() {
   }
   const openReview = () => {
     setPreview(null)
+    setViewPly(null)
     setReviewView(null)
     practice.stop()
     actions.openReview()
@@ -84,7 +85,34 @@ export default function App() {
     setMode(next)
     if (next === 'puzzles' && !puzzles.puzzle) void puzzles.load()
   }
-  const shown = review ? (practiceBoard ? null : reviewPreview) : preview
+  // Looking back at an earlier position of the game (the number of moves played by then); null for the current one.
+  // It never changes the game, and the board can't be moved until you're back at the current position.
+  const [viewPly, setViewPly] = useState<number | null>(null)
+  const viewing = viewPly !== null && viewPly >= 1 && viewPly < plies.length ? viewPly : null
+  const pliesBefore = useRef(plies.length)
+  useEffect(() => {
+    // A take-back or a new game ends the look back; the opponent's move doesn't.
+    if (plies.length < pliesBefore.current) setViewPly(null)
+    pliesBefore.current = plies.length
+  }, [plies.length])
+  const stepTo = (ply: number | null) => {
+    setInstant(true)
+    setViewPly(ply === null || ply >= plies.length ? null : Math.max(1, ply))
+  }
+  const browse = useMemo((): BoardPreview | null => {
+    if (viewing === null) return null
+    const ply = plies[viewing - 1]
+    return {
+      fen: buildGame(plies.slice(0, viewing)).fen(),
+      from: ply.uci.slice(0, 2),
+      to: ply.uci.slice(2, 4),
+      played: true,
+      badge: coach.gradesHidden ? undefined : ply.grade?.classification,
+      label: `${moveLabel(viewing - 1, ply.san)} · an earlier position. ⏭ goes back to the game.`,
+    }
+  }, [viewing, plies, coach.gradesHidden])
+
+  const shown = review ? (practiceBoard ? null : reviewPreview) : (preview ?? browse)
   const shownGame = useMemo(() => (shown ? new Chess(shown.fen) : null), [shown])
   const [voices, setVoices] = useState<VoiceOption[]>([])
   const [voice, setVoice] = useState<string | null>(null)
@@ -127,6 +155,13 @@ export default function App() {
       const target = e.target as HTMLElement
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return
       if ((e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') || puzzleMode) return
+      if (!review && !coach.coached) {
+        // Outside coached games the arrows step through the game (there are no take-backs).
+        const at = viewing ?? plies.length
+        if (e.key === 'ArrowLeft') stepTo(at - 1)
+        else if (viewing !== null) stepTo(viewing + 1)
+        return
+      }
       if (review) {
         if (practice.practice) return
         const step = e.key === 'ArrowLeft' ? -1 : 1
@@ -143,7 +178,10 @@ export default function App() {
   const userChar = userColor === 'white' ? 'w' : 'b'
   const orientation = flipped ? (userColor === 'white' ? 'black' : 'white') : userColor
   const last = plies.at(-1)
-  const evaluation: Eval | null = coach.evals.slice(0, plies.length + 1).findLast((e) => e != null) ?? null
+  const evaluation: Eval | null =
+    viewing !== null
+      ? (coach.evals[viewing] ?? null)
+      : (coach.evals.slice(0, plies.length + 1).findLast((e) => e != null) ?? null)
   // In the review, the bar follows the position on the board: the move being looked at (after it, or before it
   // when comparing with the best move), or the move just tried.
   const reviewEvaluation: Eval | null = !review
@@ -214,7 +252,7 @@ export default function App() {
       userColor: userChar,
       lastMove: last ? { from: last.uci.slice(0, 2), to: last.uci.slice(2, 4) } : null,
       badge:
-        last?.grade && !coach.helpHidden
+        last?.grade && !coach.gradesHidden
           ? { square: last.uci.slice(2, 4), classification: last.grade.classification }
           : null,
       arrows:
@@ -260,7 +298,7 @@ export default function App() {
             evaluation={
               puzzleMode
                 ? puzzles.evaluation
-                : phase === 'setup' || coach.helpHidden
+                : phase === 'setup' || coach.gradesHidden
                   ? null
                   : (reviewEvaluation ?? evaluation)
             }
@@ -298,11 +336,11 @@ export default function App() {
               <NewGame
                 levels={levels}
                 initialLevel={coach.level?.id ?? 'casual'}
-                initialAssisted={coach.assisted}
-                onStart={(color, level, assisted) => {
+                initialAssistance={coach.assistance}
+                onStart={(color, level, assistance) => {
                   setShowSetup(false)
                   setFlipped(false)
-                  actions.newGame(color, level, assisted)
+                  actions.newGame(color, level, assistance)
                 }}
                 onCancel={phase === 'setup' ? undefined : () => setShowSetup(false)}
               />
@@ -342,11 +380,11 @@ export default function App() {
                 onPiece={actions.revealPiece}
                 canReview={coach.canReview}
                 onReview={openReview}
-                assisted={coach.assisted}
+                coached={coach.coached}
                 onPreview={showPreview}
               />
               <div className="controls">
-                {coach.assisted ? (
+                {coach.coached ? (
                   <>
                     <button onClick={actions.undo} disabled={!coach.canUndo || !!review} title="Take back your last move (←)">
                       ↶ Take back
@@ -375,7 +413,26 @@ export default function App() {
                   </button>
                 )}
               </div>
-              <MoveList plies={plies} showGrades={!coach.helpHidden} />
+              <div className="move-nav" aria-label="Step through the game">
+                <button onClick={() => stepTo(1)} disabled={plies.length < 2 || viewing === 1} title="First move">
+                  ⏮
+                </button>
+                <button onClick={() => stepTo((viewing ?? plies.length) - 1)} disabled={(viewing ?? plies.length) <= 1} title="Previous move">
+                  ◀
+                </button>
+                <button onClick={() => viewing !== null && stepTo(viewing + 1)} disabled={viewing === null} title="Next move">
+                  ▶
+                </button>
+                <button onClick={() => stepTo(null)} disabled={viewing === null} title="Back to the game">
+                  ⏭
+                </button>
+              </div>
+              <MoveList
+                plies={plies}
+                showGrades={!coach.gradesHidden}
+                current={(viewing ?? plies.length) - 1}
+                onSelect={(index) => stepTo(index + 1)}
+              />
               <details className="settings">
                 <summary>⚙ Settings</summary>
                 <label className="setting">

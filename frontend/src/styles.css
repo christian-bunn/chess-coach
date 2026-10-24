@@ -471,8 +471,25 @@ button.move-ref:focus-visible {
 .move {
   display: inline-flex;
   align-items: center;
+  justify-self: start;
   padding: 0 4px;
+  border: none;
   border-radius: 3px;
+  background: none;
+  font: inherit;
+  color: inherit;
+}
+.move:disabled {
+  opacity: 1;
+}
+/* Stepping through the game: first, back, forward, and back to the current position. */
+.move-nav {
+  display: flex;
+  gap: 6px;
+}
+.move-nav button {
+  flex: 1;
+  padding: 4px 8px;
 }
 .move.current {
   background: rgba(255, 255, 255, 0.12);

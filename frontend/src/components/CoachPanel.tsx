@@ -21,8 +21,8 @@ interface CoachPanelProps {
   /** Open the game review: from the hint row at any time, and offered when the game is over. */
   canReview: boolean
   onReview: () => void
-  /** False in an unassisted game: no hint buttons. */
-  assisted: boolean
+  /** Hint buttons are for coached games only. */
+  coached: boolean
   /** Show a move mentioned in a message on the board (null: back to the game). */
   onPreview: (move: MoveRef | null) => void
 }
@@ -49,7 +49,7 @@ export function CoachPanel({
   onPiece,
   canReview,
   onReview,
-  assisted,
+  coached,
   onPreview,
 }: CoachPanelProps) {
   const feed = useRef<HTMLDivElement>(null)
@@ -118,7 +118,7 @@ export function CoachPanel({
           </button>
         </div>
       )}
-      {assisted && (
+      {coached && (
         <div className="hint-row">
           <button type="button" onClick={onIdea} disabled={!canIdea} title="A nudge toward the idea, without giving the move">
             💡 Hint

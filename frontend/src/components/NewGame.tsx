@@ -1,20 +1,36 @@
 import { useState } from 'react'
 import type { Level } from '../api'
-import type { Side } from '../useCoachGame'
+import type { Assistance, Side } from '../useCoachGame'
+
+const MODES: { id: Assistance; label: string; about: string }[] = [
+  { id: 'coached', label: '🎓 Coached', about: 'Grades, comments, hints, retries and take-backs as you play.' },
+  {
+    id: 'graded',
+    label: '📊 Graded',
+    about: "Every move's grade, yours and your opponent's, and the evaluation bar, but no hints, take-backs or comments.",
+  },
+  {
+    id: 'unassisted',
+    label: '⚔ Unassisted',
+    about:
+      "A real game: no hints, take-backs, comments, grades or evaluation until it's over. Then the review shows how " +
+      'it went, and your mistakes still become puzzles.',
+  },
+]
 
 interface NewGameProps {
   levels: Level[]
   initialLevel: string
-  /** Whether the last game was coached, so the choice carries over. */
-  initialAssisted: boolean
-  onStart: (color: Side | 'random', level: Level, assisted: boolean) => void
+  /** The last game's mode, so the choice carries over. */
+  initialAssistance: Assistance
+  onStart: (color: Side | 'random', level: Level, assistance: Assistance) => void
   onCancel?: () => void
 }
 
-export function NewGame({ levels, initialLevel, initialAssisted, onStart, onCancel }: NewGameProps) {
+export function NewGame({ levels, initialLevel, initialAssistance, onStart, onCancel }: NewGameProps) {
   const [color, setColor] = useState<Side | 'random'>('white')
   const [levelId, setLevelId] = useState(initialLevel)
-  const [assisted, setAssisted] = useState(initialAssisted)
+  const [assistance, setAssistance] = useState(initialAssistance)
   const level = levels.find((l) => l.id === levelId) ?? levels[0]
 
   return (
@@ -45,21 +61,16 @@ export function NewGame({ levels, initialLevel, initialAssisted, onStart, onCanc
       <fieldset>
         <legend>Coach</legend>
         <div className="segmented">
-          <button className={assisted ? 'active' : ''} onClick={() => setAssisted(true)}>
-            🎓 Coached
-          </button>
-          <button className={assisted ? '' : 'active'} onClick={() => setAssisted(false)}>
-            ⚔ Unassisted
-          </button>
+          {MODES.map((m) => (
+            <button key={m.id} className={assistance === m.id ? 'active' : ''} onClick={() => setAssistance(m.id)}>
+              {m.label}
+            </button>
+          ))}
         </div>
-        <p className="muted">
-          {assisted
-            ? 'Grades, comments, hints, retries and take-backs as you play.'
-            : 'A real game: no hints, take-backs, comments, grades or evaluation until it\'s over. Then the review shows how it went, and your mistakes still become puzzles.'}
-        </p>
+        <p className="muted">{MODES.find((m) => m.id === assistance)?.about}</p>
       </fieldset>
       <div className="row">
-        <button className="primary" disabled={!level} onClick={() => level && onStart(color, level, assisted)}>
+        <button className="primary" disabled={!level} onClick={() => level && onStart(color, level, assistance)}>
           Start game
         </button>
         {onCancel && <button onClick={onCancel}>Cancel</button>}
