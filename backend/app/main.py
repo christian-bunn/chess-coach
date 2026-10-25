@@ -20,7 +20,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from .advice import HINT_LEVELS, hint
-from .coach import describe_user_move
+from .coach import describe_opponent_move, describe_user_move
 from .config import Settings
 from .engine import EngineService
 from .guide import plan
@@ -256,7 +256,9 @@ async def bot_move(body: BotMoveIn, request: Request) -> MoveGrade:
     engines = _engines(request)
     # The analysis of the current position is usually cached already; if not, run it alongside.
     move, _ = await asyncio.gather(engines.play(board, level), engines.analyse(board))
-    return await _grade(engines, board, move)
+    result = await _grade(engines, board, move)
+    result.message = describe_opponent_move(result, board)
+    return result
 
 
 @app.post("/api/hint")

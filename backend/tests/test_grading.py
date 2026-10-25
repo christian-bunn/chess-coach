@@ -4,7 +4,7 @@ import chess
 import chess.engine
 import pytest
 
-from app.coach import describe_user_move
+from app.coach import describe_opponent_move, describe_user_move
 from app import grading
 from app.engine import Analysis, Line
 from app.grading import classify, grade_move, material_change, win_percent
@@ -170,3 +170,51 @@ def test_better_moves_come_with_their_number():
     good = grade(board, "d3", before, Cp(-8), "d5")
     assert good.classification == "good"
     assert describe_user_move(good, board) == "Good move. 3.Bb5 was a little stronger."
+
+
+class TestOpponentComments:
+    """The opponent's bad moves are explained too: what they missed by name, but not the move that punishes them."""
+
+    def test_allowing_mate(self):
+        board = board_after("e4", "e5", "Qh5", "Nc6", "Bc4")
+        before = fake_analysis(board, ("g6", Cp(-50)))
+        g = grade(board, "Nf6", before, Mate(1), reply="Qxf7#")
+        text = describe_opponent_move(g, board)
+        assert text == "Blunder by your opponent! 3...Nf6 lets you checkmate in one. Can you find it?"
+
+    def test_hanging_a_piece(self):
+        board = board_after("e4", "d5")
+        g = grade(board, "Qg4", fake_analysis(board, ("exd5", Cp(50))), Cp(700), "Bxg4")
+        text = describe_opponent_move(g, board)
+        assert text == "Blunder by your opponent! 2.Qg4 puts their queen on g4 where you can win it. Can you find how?"
+        assert "Bxg4" not in text  # finding it is left to the student
+
+    def test_ignoring_an_attacked_piece(self):
+        board = board_after("e4", "e5", "Qh5", "Nf6")
+        g = grade(board, "d3", fake_analysis(board, ("Qe2", Cp(0))), Cp(700), "Nxh5")
+        assert describe_opponent_move(g, board) == (
+            "Blunder by your opponent! Their queen on h5 was already under attack, and 3.d3 didn't deal with it. "
+            "Can you win it?"
+        )
+
+    def test_missed_mate_is_named(self):
+        board = board_after("e4", "e5", "Qh5", "Nc6", "Bc4", "Nf6")
+        before = fake_analysis(board, ("Qxf7#", Mate(1)), ("Bxf7+", Cp(300)), ("Qf3", Cp(40)))
+        g = grade(board, "Qf3", before, Cp(-40), reply="Nd4")
+        assert describe_opponent_move(g, board) == "Your opponent missed a chance! They had checkmate in one with 4.Qxf7#."
+
+    def test_a_positional_mistake(self):
+        board = board_after("e4", "e5", "Nf3", "Nc6")
+        g = grade(board, "a3", fake_analysis(board, ("Bb5", Cp(40))), Cp(150), "d5")
+        assert g.classification in ("mistake", "blunder")
+        assert describe_opponent_move(g, board).endswith(" 3.a3 gives you the better position. Can you find the best move?")
+
+    def test_an_inaccuracy_names_their_better_move(self):
+        board = board_after("e4", "e5", "Nf3", "Nc6")
+        g = grade(board, "d3", fake_analysis(board, ("Bb5", Cp(40))), Cp(40), "d5")
+        assert describe_opponent_move(g, board) == "Inaccuracy by your opponent. 3.Bb5 was better for them."
+
+    def test_good_moves_get_no_comment(self):
+        board = board_after("e4", "e5")
+        g = grade(board, "Nf3", fake_analysis(board, ("Nf3", Cp(40))), Cp(-40), "Nc6")
+        assert describe_opponent_move(g, board) is None

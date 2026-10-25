@@ -53,6 +53,8 @@ export interface CoachMessage {
   /** The game (UCI moves) when the message was written, so the moves it mentions can be shown on the board. */
   context?: string[]
   grade?: MoveGrade
+  /** A comment on the opponent's move rather than the student's. */
+  opponent?: boolean
 }
 
 /** The game as it stood when the review was opened. Practising moves in the review doesn't change it. */
@@ -141,7 +143,7 @@ function message(
   kind: CoachMessage['kind'],
   text: string,
   grade?: MoveGrade,
-  extra?: Partial<Pick<CoachMessage, 'prefix' | 'loading' | 'hintLevel' | 'speak' | 'context'>>,
+  extra?: Partial<Pick<CoachMessage, 'prefix' | 'loading' | 'hintLevel' | 'speak' | 'context' | 'opponent'>>,
 ): CoachMessage {
   return { id: nextMessageId++, kind, text, grade, ...extra }
 }
@@ -322,6 +324,17 @@ export function useCoachGame(onPuzzleSaved?: () => void, paused = false) {
         timeUp(botSide)
         return
       }
+      // In a coached game, the opponent's mistakes, misses and blunders are explained too (and its inaccuracies,
+      // when the coach comments on every move). The backend only writes a comment for those.
+      const { assistance, coachMode } = stateRef.current
+      const note =
+        assistance === 'coached' && grade.message && (coachMode === 'all' || grade.classification !== 'inaccuracy')
+          ? message('grade', grade.message, grade, {
+              speak: true,
+              opponent: true,
+              context: [...plies.map((p) => p.uci), grade.uci],
+            })
+          : null
       update((s) =>
         finishTurn(
           {
@@ -329,10 +342,12 @@ export function useCoachGame(onPuzzleSaved?: () => void, paused = false) {
             clock: s.clock && afterMove(s.clock, botSide, thought),
             plies: [...s.plies, { uci: grade.uci, san: grade.san, grade }],
             evals: [...s.evals.slice(0, grade.ply), grade.eval_after],
+            messages: note ? [...s.messages, note] : s.messages,
           },
           'user',
         ),
       )
+      if (note) announce(note.id)
     } catch (error) {
       if (!signal.aborted) fail(error, 'bot')
     }

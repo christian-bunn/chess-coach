@@ -51,13 +51,19 @@ moves, missed mates, and finding the right move on a retry. Inaccuracies get a s
 gets its grade badge, and the last move's badge sits on the piece that moved, for your moves and the
 opponent's, the way chess.com shows it.
 
-Under **⚙ Settings**, set **Coach comments** to "on every move" for a comment on each of your moves.
+Your opponent's mistakes, misses and blunders get a comment too, marked **Your opponent**. It says what the
+move gave away ("Their rook on a8 was already under attack, and 8...O-O didn't deal with it. Can you win
+it?") without naming the move that takes advantage, so finding it is up to you (💡 Hint helps). What your
+opponent missed is named, since that's over: "They had checkmate in one with 12...Qh2#."
+
+Under **⚙ Settings**, set **Coach comments** to "on every move" for a comment on each of your moves, and on
+your opponent's inaccuracies as well.
 
 The newest message is outlined. If you scroll up to reread something, new messages won't pull you away, and
 a **↓ Latest** button takes you back.
 
 Turn on **Speak** (the 🔊 button, or under ⚙ Settings) to have the coach read those key comments and
-inaccuracy notes, plus your hints, aloud.
+inaccuracy notes, the comments on your opponent's moves, and your hints aloud.
 - **The voice:** [Piper](https://github.com/OHF-Voice/piper1-gpl), natural-sounding voice models that
   run offline on your CPU. The backend makes the audio and the page plays it, so it works in any browser,
   including the Claude desktop app's, which has no voices of its own.

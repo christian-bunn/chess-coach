@@ -438,6 +438,15 @@ button.move-ref:focus-visible {
 .bubble.hint {
   border-left: 3px solid #f0c03a;
 }
+/* A comment on the opponent's move. */
+.bubble.opponent {
+  border-left: 3px solid var(--border);
+}
+.bubble-who {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
 .hint-row {
   display: flex;
   align-items: center;

@@ -154,13 +154,14 @@ function Message({ message, latest, onPreview }: { message: CoachMessage; latest
   if (message.kind === 'grade' && grade) {
     const meta = GRADE_META[grade.classification]
     return (
-      <div className={`bubble ${latest ? 'latest' : ''}`}>
+      <div className={`bubble ${message.opponent ? 'opponent' : ''} ${latest ? 'latest' : ''}`}>
         <div className="bubble-head">
           <span className="badge" style={{ background: meta.color }}>
             {meta.symbol}
           </span>
           <strong>{moveLabel(grade.ply - 1, grade.san)}</strong>
           <span style={{ color: meta.color }}>{meta.label}</span>
+          {message.opponent && <span className="bubble-who">Your opponent</span>}
         </div>
         {body}
       </div>
