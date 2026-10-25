@@ -1,5 +1,6 @@
 import type { Classification, MoveGrade, Puzzle, PuzzleSummary } from '../api'
 import { GRADE_META } from '../grades'
+import { fromNow } from '../time'
 import { moveLabel, type Ply } from '../useCoachGame'
 import type { PuzzleStatus } from '../usePuzzles'
 import { MoveList } from './MoveList'
@@ -30,14 +31,6 @@ interface PuzzlePanelProps {
   onRemove: () => void
 }
 
-/** "in 5 hours", "tomorrow", "in 3 days". */
-function fromNow(iso: string): string {
-  const hours = Math.round((new Date(iso).getTime() - Date.now()) / 3_600_000)
-  if (hours < 1) return 'in under an hour'
-  if (hours < 20) return `in ${hours} hour${hours === 1 ? '' : 's'}`
-  const days = Math.max(1, Math.round(hours / 24))
-  return days === 1 ? 'tomorrow' : `in ${days} days`
-}
 
 const MASTERED_STREAK = 4
 

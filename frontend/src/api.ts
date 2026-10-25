@@ -182,6 +182,29 @@ export interface PracticeStep {
   moves: { uci: string; san: string; lines: number }[]
 }
 
+/** An opening in the student's repertoire, with its review schedule (see backend/app/repertoire.py). */
+export interface RepertoireEntry {
+  id: string
+  name: string
+  eco: string
+  moves: string[]
+  side: 'white' | 'black'
+  added: string
+  due: string
+  /** Reviews in a row without a mistake. */
+  streak: number
+  reviews: number
+  lapses: number
+  last_mistakes: number | null
+}
+
+export interface Repertoire {
+  entries: RepertoireEntry[]
+  total: number
+  due: number
+  mastered: number
+}
+
 export const api = {
   config: () => request<CoachConfig>('/config'),
   levels: () => request<Level[]>('/levels'),
@@ -197,6 +220,14 @@ export const api = {
     explore: (moves: string[], signal?: AbortSignal) => request<OpeningPosition>('/openings/explore', { moves }, signal),
     practice: (target: string[], moves: string[], signal?: AbortSignal) =>
       request<PracticeStep>('/openings/practice', { target, moves }, signal),
+  },
+  repertoire: {
+    list: () => request<Repertoire>('/repertoire'),
+    add: (body: Pick<RepertoireEntry, 'name' | 'eco' | 'moves' | 'side'>) => request<RepertoireEntry>('/repertoire', body),
+    /** Record a completed practice run; it only counts as a review if the opening was due. */
+    review: (id: string, mistakes: number) =>
+      request<{ entry: RepertoireEntry; counted: boolean }>(`/repertoire/${id}/review`, { mistakes }),
+    remove: (id: string) => request<{ removed: boolean }>(`/repertoire/${id}`, undefined, undefined, 'DELETE'),
   },
   games: {
     list: () => request<SavedGameSummary[]>('/games'),

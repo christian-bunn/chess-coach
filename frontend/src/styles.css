@@ -634,6 +634,26 @@ button.move-ref:focus-visible {
 .book-moves .opening-item .muted {
   margin-left: auto;
 }
+.opening-item.due {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.repertoire-row {
+  align-items: center;
+}
+.in-repertoire {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+  font-size: 0.9rem;
+}
+.badge-line {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #3d4a31;
+  color: var(--accent);
+  font-size: 0.8rem;
+}
 .opening-path {
   display: flex;
   flex-wrap: wrap;

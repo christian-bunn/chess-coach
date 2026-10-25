@@ -30,6 +30,7 @@ from .openings import BookLine, continuations, featured, name_of, opening, pract
 from .openings import load as load_openings, mark_book
 from .games import GameStore
 from .puzzles import Puzzle, PuzzleStore
+from .repertoire import Entry, RepertoireStore
 from .speech import MAX_TEXT, Speech
 
 log = logging.getLogger(__name__)
@@ -45,6 +46,7 @@ async def lifespan(app: FastAPI):
     await asyncio.to_thread(load_openings)
     app.state.puzzles = PuzzleStore(settings.progress_dir / "puzzles.json")
     app.state.games = GameStore(settings.progress_dir / "games.json")
+    app.state.repertoire = RepertoireStore(settings.progress_dir / "repertoire.json")
     speech = Speech(settings.voices_dir)
     speech.start()
     app.state.speech = speech
@@ -72,6 +74,17 @@ class HintIn(MovesIn):
 
 class PracticeIn(MovesIn):
     target: list[str] = Field(max_length=100)  # the opening being practised (UCI, from the start)
+
+
+class RepertoireIn(BaseModel):
+    name: str = Field(max_length=200)
+    eco: str = Field(max_length=10)
+    moves: list[str] = Field(max_length=100)  # the opening's line (UCI, from the start)
+    side: Literal["white", "black"]
+
+
+class ReviewIn(BaseModel):
+    mistakes: int = Field(ge=0, le=1000)
 
 
 class AttemptIn(BaseModel):
@@ -445,3 +458,41 @@ async def practice_opening(body: PracticeIn) -> dict:
         "on_line": True,
         "moves": [{"uci": uci, "san": board.san(chess.Move.from_uci(uci)), "lines": n} for uci, n in found],
     }
+
+
+# ------------------------------------------------------------------------------------ repertoire
+
+
+def _repertoire(request: Request) -> RepertoireStore:
+    return request.app.state.repertoire
+
+
+@app.get("/api/repertoire")
+async def repertoire(request: Request) -> dict:
+    """The openings in the repertoire, the soonest due first, and how many are due."""
+    store = _repertoire(request)
+    return {"entries": store.list(), **store.summary()}
+
+
+@app.post("/api/repertoire")
+async def add_to_repertoire(body: RepertoireIn, request: Request) -> Entry:
+    """Add an opening (due now). Its moves must be legal."""
+    _replay(body.moves)
+    return _repertoire(request).add(body.name, body.eco, body.moves, body.side)
+
+
+@app.post("/api/repertoire/{eid}/review")
+async def review_opening(eid: str, body: ReviewIn, request: Request) -> dict:
+    """Record a completed practice run of an opening: {"entry", "counted"} (only a due opening's run counts)."""
+    result = _repertoire(request).review(eid, body.mistakes)
+    if result is None:
+        raise HTTPException(404, "Not in the repertoire")
+    entry, counted = result
+    return {"entry": entry, "counted": counted}
+
+
+@app.delete("/api/repertoire/{eid}")
+async def remove_from_repertoire(eid: str, request: Request) -> dict:
+    if not _repertoire(request).remove(eid):
+        raise HTTPException(404, "Not in the repertoire")
+    return {"removed": True}

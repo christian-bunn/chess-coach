@@ -1,6 +1,6 @@
 import { Chess } from 'chess.js'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { api, type Eval, type OpeningLine, type OpeningPosition, type PracticeStep } from './api'
+import { api, type Eval, type OpeningLine, type OpeningPosition, type PracticeStep, type Repertoire, type RepertoireEntry } from './api'
 
 export type OpeningSide = 'white' | 'black'
 
@@ -15,13 +15,19 @@ export type OpeningSide = 'white' | 'black'
 export type PracticeStatus = 'checking' | 'thinking' | 'opponent' | 'wrong' | 'done' | 'error'
 
 export interface OpeningPractice {
+  /** The opening being practised (UCI, from the start). */
+  target: string[]
   side: OpeningSide
+  /** The repertoire entry this run reviews, if the opening is in the repertoire for this side. */
+  entryId: string | null
+  /** Once the run is complete and recorded: the entry as rescheduled, and whether the run counted (it was due). */
+  review: { entry: RepertoireEntry; counted: boolean } | null
   moves: string[]
   status: PracticeStatus
   /** The book moves the student can play now, most lines first (shown on request). */
   options: PracticeStep['moves']
   shown: boolean
-  /** Positions where the student's first try wasn't a book move. */
+  /** Positions where the student's first try wasn't a book move, or they asked to be shown it. */
   mistakes: number
   /** The student's last try that wasn't a book move, in SAN. */
   wrong: string | null
@@ -48,6 +54,11 @@ export function gameFrom(moves: string[]): Chess {
 export function sans(moves: string[]): string[] {
   const game = new Chess()
   return moves.map((uci) => game.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] }).san)
+}
+
+/** "1. e4 e5 2. Nf3" from SAN moves, numbered from the start. */
+export function numbered(moves: string[]): string {
+  return moves.map((san, i) => (i % 2 === 0 ? `${i / 2 + 1}. ${san}` : san)).join(' ')
 }
 
 /** Who chooses an opening: whoever plays its last move (1.e4 c5, the Sicilian, is Black's choice). */
@@ -81,12 +92,32 @@ export function useOpenings() {
   const [evaluation, setEvaluation] = useState<Eval | null>(null)
   const [hover, setHover] = useState<string | null>(null)
   const [practice, setPractice] = useState<OpeningPractice | null>(null)
+  const [repertoire, setRepertoire] = useState<Repertoire | null>(null)
   // Bumped when a practice run starts or stops, so a stopped run's late replies are dropped.
   const run = useRef(0)
 
+  const refreshRepertoire = () => {
+    api.repertoire.list().then(setRepertoire, () => {})
+  }
   useEffect(() => {
     api.openings.featured().then(setFeatured, () => setFeatured([]))
+    refreshRepertoire()
   }, [])
+
+  /** The repertoire entry for an opening line played as `side`, if there is one. */
+  const entryFor = (moves: string[], side: OpeningSide) =>
+    repertoire?.entries.find((e) => e.side === side && e.moves.join(' ') === moves.join(' ')) ?? null
+
+  const addToRepertoire = async (side: OpeningSide) => {
+    if (!line) return
+    await api.repertoire.add({ name: line.name, eco: line.eco, moves: line.moves, side }).catch(() => {})
+    refreshRepertoire()
+  }
+
+  const removeFromRepertoire = async (id: string) => {
+    await api.repertoire.remove(id).catch(() => {})
+    refreshRepertoire()
+  }
 
   // Search as you type.
   useEffect(() => {
@@ -149,20 +180,27 @@ export function useOpenings() {
     setAt(at + 1)
   }
 
-  const advance = async (id: number, side: OpeningSide, moves: string[], mistakes: number) => {
-    if (!line) return
+  type Run = Pick<OpeningPractice, 'target' | 'side' | 'entryId'>
+
+  const advance = async (id: number, of: Run, moves: string[], mistakes: number) => {
     let next: PracticeStep
     try {
-      next = await api.openings.practice(line.moves, moves)
+      next = await api.openings.practice(of.target, moves)
     } catch {
       if (id === run.current) setPractice((p) => p && { ...p, status: 'error' })
       return
     }
     if (id !== run.current) return
-    const base = { side, moves, shown: false, mistakes, wrong: null }
+    const base = { ...of, review: null, moves, shown: false, mistakes, wrong: null }
     if (!next.on_line || next.moves.length === 0) {
       setPractice({ ...base, status: 'done', options: [] })
-    } else if (sideToMove(moves) === side) {
+      if (of.entryId) {
+        // A completed run reviews the opening (if it was due), which sets when it comes back.
+        const review = await api.repertoire.review(of.entryId, mistakes).catch(() => null)
+        if (review && id === run.current) setPractice((p) => p && { ...p, review })
+        refreshRepertoire()
+      }
+    } else if (sideToMove(moves) === of.side) {
       setPractice({ ...base, status: 'thinking', options: next.moves })
     } else {
       // The opponent plays one of its book moves, after a moment so it can be followed.
@@ -171,16 +209,32 @@ export function useOpenings() {
       if (id !== run.current) return
       const played = [...moves, pick(next.moves)]
       setPractice({ ...base, moves: played, status: 'checking', options: [] })
-      void advance(id, side, played, mistakes)
+      void advance(id, of, played, mistakes)
     }
   }
 
-  /** Practise the chosen opening from the start, playing `side`. */
-  const startPractice = (side: OpeningSide) => {
+  /** Practise an opening from the start (the chosen one by default), playing `side`. */
+  const startPractice = (side: OpeningSide, target: string[] | undefined = line?.moves) => {
+    if (!target) return
     const id = ++run.current
+    const of: Run = { target, side, entryId: entryFor(target, side)?.id ?? null }
     setHover(null)
-    setPractice({ side, moves: [], status: 'checking', options: [], shown: false, mistakes: 0, wrong: null })
-    void advance(id, side, [], 0)
+    setPractice({ ...of, review: null, moves: [], status: 'checking', options: [], shown: false, mistakes: 0, wrong: null })
+    void advance(id, of, [], 0)
+  }
+
+  /** Open an opening from the repertoire and practise it as its side. */
+  const practiseEntry = (entry: RepertoireEntry) => {
+    setLine({ name: entry.name, eco: entry.eco, moves: entry.moves, pgn: numbered(sans(entry.moves)) })
+    setPath(entry.moves)
+    setAt(entry.moves.length)
+    startPractice(entry.side as OpeningSide, entry.moves)
+  }
+
+  /** The next opening due for review (not the one just practised), if any. */
+  const nextDue = (): RepertoireEntry | null => {
+    const now = Date.now()
+    return repertoire?.entries.find((e) => new Date(e.due).getTime() <= now && e.id !== practice?.entryId) ?? null
   }
 
   const practiceMove = (uci: string) => {
@@ -189,7 +243,7 @@ export function useOpenings() {
     if (p.options.some((o) => o.uci === uci)) {
       const played = [...p.moves, uci]
       setPractice({ ...p, moves: played, status: 'checking', wrong: null, shown: false })
-      void advance(run.current, p.side, played, p.mistakes)
+      void advance(run.current, p, played, p.mistakes)
       return
     }
     const san = gameFrom(p.moves).move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] }).san
@@ -197,21 +251,27 @@ export function useOpenings() {
     setPractice({ ...p, status: 'wrong', wrong: san, mistakes: p.status === 'wrong' ? p.mistakes : p.mistakes + 1 })
   }
 
-  const showAnswer = () => setPractice((p) => p && { ...p, shown: true })
+  // Being shown the move counts as a mistake (unless a wrong try here already did): it wasn't recalled.
+  const showAnswer = () =>
+    setPractice((p) => p && { ...p, shown: true, mistakes: p.status === 'wrong' ? p.mistakes : p.mistakes + 1 })
 
   const stopPractice = () => {
     run.current++
     setPractice(null)
   }
 
-  /** Leave practice and explore from where it got to. */
-  const exploreFromPractice = () => {
-    if (!practice) return
+  /**
+   * Leave practice to go over the line just played: the board goes to where the opening's variations begin, with
+   * the rest of the line ahead, so stepping forward shows the other book moves at each point. (Where a run ends,
+   * no named line goes on, so there's nothing left to explore there.)
+   */
+  const goOverPractice = () => {
+    if (!practice || !line) return
     const moves = practice.moves
     run.current++
     setPractice(null)
     setPath(moves)
-    setAt(moves.length)
+    setAt(Math.min(line.moves.length, moves.length))
   }
 
   const board = useMemo((): OpeningBoard | null => {
@@ -243,7 +303,8 @@ export function useOpenings() {
   return {
     featured, query, setQuery, results, line, choose, close,
     path, at, current, position, evaluation, step, explore, setHover,
-    practice, startPractice, practiceMove, showAnswer, stopPractice, exploreFromPractice,
+    practice, startPractice, practiceMove, showAnswer, stopPractice, goOverPractice,
+    repertoire, entryFor, addToRepertoire, removeFromRepertoire, practiseEntry, nextDue,
     board,
   }
 }

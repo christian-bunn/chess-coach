@@ -114,6 +114,30 @@ export default function App() {
     setInstant(true)
     void savedGames.show(id)
   }
+  // Playing a game from an opening position: in Play, against the level of the last game, in the usual mode. If a
+  // game is in progress, the Openings page asks first.
+  const [pendingPlay, setPendingPlay] = useState<{ moves: string[]; side: 'white' | 'black'; name: string } | null>(null)
+  const startFrom = (from: { moves: string[]; side: 'white' | 'black'; name: string }) => {
+    const level = coach.level ?? levels.find((l) => l.id === 'casual') ?? levels[0]
+    if (!level) return
+    setPendingPlay(null)
+    setShowSetup(false)
+    setFlipped(false)
+    actions.playOnFrom(
+      from.moves,
+      from.side,
+      level,
+      coach.assistance,
+      `Playing on from the ${from.name} against ${level.name} (about ${level.elo}).`,
+    )
+    switchMode('play')
+  }
+  const playFrom = (moves: string[], side: 'white' | 'black', name: string) => {
+    const inProgress = phase !== 'setup' && phase !== 'over'
+    if (inProgress) setPendingPlay({ moves, side, name })
+    else startFrom({ moves, side, name })
+  }
+
   const closeSaved = () => {
     setReviewView(null)
     practice.stop()
@@ -384,6 +408,7 @@ export default function App() {
           </button>
           <button className={openingsMode ? 'active' : ''} onClick={() => switchMode('openings')} aria-pressed={openingsMode}>
             📚 Openings
+            {!!openings.repertoire?.due && <span className="count">{openings.repertoire.due}</span>}
           </button>
         </nav>
       </header>
@@ -438,7 +463,13 @@ export default function App() {
               onRemove={() => void puzzles.remove()}
             />
           ) : openingsMode ? (
-            <OpeningsPanel openings={openings} />
+            <OpeningsPanel
+              openings={openings}
+              onPlayFrom={playFrom}
+              confirmingPlay={pendingPlay !== null}
+              onConfirmPlay={() => pendingPlay && startFrom(pendingPlay)}
+              onCancelPlay={() => setPendingPlay(null)}
+            />
           ) : savedMode ? (
             review && savedGames.open ? (
               <GameReview

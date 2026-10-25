@@ -189,6 +189,20 @@ takes you back.
   lines most likely, so each run can go a different way. A move that isn't a book move of this opening gets
   "Try again" (**Show me** draws the book move), and the run ends when the opening's named lines do, with a count
   of your mistakes. Practice follows the lines' own move orders, and the eval bar stays hidden.
+- **Going over a line:** after a run, **Go over this line** goes back to where the variations began, with the
+  line you played ahead of you: step through it with ▶ and see, at each move, the other book moves you could
+  have met (the move from your line is marked "this line").
+- **My repertoire (spaced repetition):** **☆ Add to my repertoire** as White or Black keeps an opening in My
+  repertoire, at the top of the Openings page (the number on **📚 Openings** is how many are due). It's due
+  straight away; after that, each completed practice run of a due opening is a review: a clean run brings it
+  back later than last time (a day, then 3 days, a week, two weeks, …), and any mistake (asking to be shown a
+  move counts as one) brings it back the next day. Practising one that isn't due doesn't change its schedule.
+  Because the computer varies its replies, the reviews cover the different variations over time. Kept in
+  `progress/repertoire.json` (git-ignored).
+- **Playing it out:** **♟ Play from here** (on any position you're exploring) and **♟ Play on from here** (at
+  the end of a practice run) start a game against the computer from that position, in Play, at your last
+  game's level and in your usual mode, so you practise the middlegame the opening leads to. If a game is in
+  progress, it asks before replacing it.
 
 ## Saved games
 
@@ -223,6 +237,7 @@ cd backend && .venv/bin/python -m pytest
   the list), search, and the book moves offered when exploring and practising an opening.
 - `tests/test_puzzles.py` checks the puzzle schedule (with a fake clock), repeats, and saving to disk.
 - `tests/test_games.py` checks saving, listing and deleting saved games.
+- `tests/test_repertoire.py` checks the opening repertoire's schedule (with a fake clock).
 
 ## How moves are graded
 
@@ -265,7 +280,8 @@ Thresholds are constants at the top of `backend/app/grading.py`.
 ```
 backend/app/
   main.py      FastAPI routes: /api/levels, /api/config, /api/analyze, /api/grade, /api/bot-move,
-               /api/hint, /api/puzzles..., /api/games..., /api/openings..., /api/speech
+               /api/hint, /api/puzzles..., /api/games..., /api/openings..., /api/repertoire...,
+               /api/speech
   engine.py    Two Stockfish processes (analysis + opponent), position cache, null-move threat search
   grading.py   win%, material counting, classification -> MoveGrade
   facts.py     Why a bad move is bad, and whether a threat is real, from the engine's lines
@@ -276,6 +292,7 @@ backend/app/
   openings.py  Opening names, book moves, and the opening tree for learning openings
   puzzles.py   Puzzles from your mistakes, with spaced repetition
   games.py     Games saved from the review
+  repertoire.py  Your opening repertoire, with spaced repetition
   levels.py    Opponent strength presets
   config.py    Settings from env vars (COACH_ANALYSIS_DEPTH, COACH_ENGINE_THREADS, ...)
 backend/data/openings/  Lichess's openings list (a.tsv ... e.tsv: ECO code, name, moves)

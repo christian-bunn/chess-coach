@@ -10,6 +10,7 @@ from app.levels import LEVELS
 from app.main import app
 from app.games import GameStore
 from app.puzzles import PuzzleStore
+from app.repertoire import RepertoireStore
 
 try:
     find_stockfish()
@@ -233,3 +234,17 @@ def test_openings(client):
     assert practice["on_line"] and practice["moves"][0] == {"uci": "f8c5", "san": "Bc5", "lines": practice["moves"][0]["lines"]}
     off = client.post("/api/openings/practice", json={"target": italian["moves"], "moves": ["d2d4"]}).json()
     assert off == {"on_line": False, "moves": []}
+
+
+def test_repertoire(client, tmp_path):
+    client.app.state.repertoire = RepertoireStore(tmp_path / "repertoire.json")
+    body = {"name": "Italian Game", "eco": "C50", "moves": ["e2e4", "e7e5", "g1f3", "b8c6", "f1c4"], "side": "white"}
+    entry = client.post("/api/repertoire", json=body).json()
+    listed = client.get("/api/repertoire").json()
+    assert listed["total"] == 1 and listed["due"] == 1 and listed["entries"][0]["id"] == entry["id"]
+    reviewed = client.post(f"/api/repertoire/{entry['id']}/review", json={"mistakes": 0}).json()
+    assert reviewed["counted"] and reviewed["entry"]["streak"] == 1
+    assert client.get("/api/repertoire").json()["due"] == 0
+    assert client.post("/api/repertoire", json={**body, "moves": ["e2e5"]}).status_code == 400
+    assert client.delete(f"/api/repertoire/{entry['id']}").json() == {"removed": True}
+    assert client.post(f"/api/repertoire/{entry['id']}/review", json={"mistakes": 0}).status_code == 404
