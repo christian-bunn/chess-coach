@@ -14,8 +14,9 @@ export function openingOf(plies: { grade: MoveGrade | null }[]): { name: string;
   return grade?.opening ? { name: grade.opening, eco: grade.eco } : null
 }
 
-// The student's moves worth going back to (plus any move that missed a mate).
-const KEY_GRADES: ReadonlySet<Classification> = new Set(['great', 'mistake', 'miss', 'blunder'])
+// The student's moves worth going back to (plus any move that missed a mate). Inaccuracies too, to see what was
+// better.
+const KEY_GRADES: ReadonlySet<Classification> = new Set(['great', 'inaccuracy', 'mistake', 'miss', 'blunder'])
 
 /** How accurately one move was played, 0-100, from how much of the mover's winning chance it gave away (Lichess's formula). */
 export function moveAccuracy(winLoss: number): number {
@@ -45,7 +46,8 @@ export function countGrades(grades: MoveGrade[]): Record<Classification, number>
   return counts
 }
 
-/** The student's moves worth looking at again: great moves, mistakes, misses, blunders and missed mates. */
+/** The student's moves worth looking at again: great moves, inaccuracies, mistakes, misses, blunders and missed
+ * mates. */
 export function keyMoments(review: ReviewSnapshot): MoveGrade[] {
   return sideGrades(review, true).filter((g) => KEY_GRADES.has(g.classification) || g.missed_mate_in !== null)
 }

@@ -159,9 +159,10 @@ opens it at any point during the game too.
 - **Graph:** your winning chances move by move, with a dot on each key moment. Click it, step with
   **⏮ ◀ ▶ ⏭** under it, or use ← and →, to see the position after any move, with the move's badge on the piece
   and the eval bar for that position.
-- **Key moments:** your great moves, mistakes, missed wins, blunders and missed mates, with the coach's
-  comment on each. Click one to see it on the board. Point at a move in a comment (like 12...Bxh2+) to see
-  it on the board too. **Show best move** draws the engine's move in green next to yours in blue.
+- **Key moments:** your great moves, inaccuracies, mistakes, missed wins, blunders and missed mates, with
+  the coach's comment on each. Click one to see it on the board. Point at a move in a comment (like
+  12...Bxh2+) to see it on the board too. **Show best move** draws the engine's move in green next to yours
+  in blue.
 - **↻ Retry:** puts the board back to the position before a mistake, so you can look for something better.
   Your try gets graded like any move ("Yes! Best move", or "Mistake" with the reason), and you can try
   again or ask for the best move. This doesn't change the game itself: **← Back to the game** returns to it
