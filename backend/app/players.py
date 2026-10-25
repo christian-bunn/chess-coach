@@ -11,7 +11,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import unquote
 
 from .games import GameStore
 from .puzzles import PuzzleStore
@@ -22,7 +21,7 @@ MAX_ID = 32
 
 def player_id(name: str) -> str | None:
     """The folder name for a player's progress, or None if the name has no letters or digits."""
-    pid = re.sub(r"[\W_]+", "-", unquote(name).strip().lower()).strip("-")[:MAX_ID].strip("-")
+    pid = re.sub(r"[\W_]+", "-", name.strip().lower()).strip("-")[:MAX_ID].strip("-")
     return pid or None
 
 

@@ -4,6 +4,7 @@ import { api, type CoachConfig, type Eval, type Level } from './api'
 import { Board } from './components/Board'
 import { CoachPanel } from './components/CoachPanel'
 import { EvalBar } from './components/EvalBar'
+import { FriendPanel } from './components/FriendPanel'
 import { GameClock } from './components/GameClock'
 import { GameReview } from './components/GameReview'
 import { MoveList } from './components/MoveList'
@@ -14,6 +15,7 @@ import { SavedGames, matchup, savedOn } from './components/SavedGames'
 import type { BoardPreview } from './moveRefs'
 import { openingOf, previewMove } from './review'
 import { buildGame, moveLabel, useCoachGame, type CoachMode, type RetryMode, type ReviewSnapshot } from './useCoachGame'
+import { useFriendGame } from './useFriendGame'
 import { useOpenings } from './useOpenings'
 import { usePuzzles } from './usePuzzles'
 import { useSavedGames } from './useSavedGames'
@@ -23,7 +25,7 @@ import { canSpeak, setServerVoice, stopSpeaking } from './voice'
 const MOVE_ARROW = 'rgba(74, 159, 216, 0.9)'
 const BEST_ARROW = 'rgba(129, 182, 76, 0.9)'
 
-type Mode = 'play' | 'puzzles' | 'saved' | 'openings'
+type Mode = 'play' | 'puzzles' | 'saved' | 'openings' | 'friend'
 
 /** `player`: whose progress this is (see player.ts); `onSwitchPlayer` asks for another name. */
 export default function App({ player, onSwitchPlayer }: { player: string; onSwitchPlayer: () => void }) {
@@ -36,9 +38,12 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
   const puzzleGame = useCoachGame(puzzles.refresh)
   const savedGames = useSavedGames()
   const openings = useOpenings()
+  // A game against a friend on the same server; it carries on (and its clocks run) whichever section is showing.
+  const friend = useFriendGame(mode === 'friend')
   const puzzleMode = mode === 'puzzles'
   const savedMode = mode === 'saved'
   const openingsMode = mode === 'openings'
+  const friendMode = mode === 'friend'
   const { phase, plies, userColor, actions } = coach
   const [levels, setLevels] = useState<Level[]>([])
   const [backendError, setBackendError] = useState<string | null>(null)
@@ -55,7 +60,13 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
 
   // The game review, of the game being played or of a saved game: the move it's showing on the board, and
   // replaying a move from it.
-  const review = savedMode ? (savedGames.open?.review ?? null) : mode === 'play' && coach.reviewOpen ? coach.review : null
+  const review = savedMode
+    ? (savedGames.open?.review ?? null)
+    : mode === 'play' && coach.reviewOpen
+      ? coach.review
+      : friendMode && friend.reviewOpen
+        ? friend.review
+        : null
   const [reviewView, setReviewView] = useState<{ ply: number; withBest: boolean } | null>(null)
   const practice = useReviewPractice(review)
   const practiceBoard = review ? practice.board : null
@@ -73,14 +84,16 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
     setViewPly(null)
     setReviewView(null)
     practice.stop()
-    actions.openReview()
+    if (friendMode) friend.openReview()
+    else actions.openReview()
   }
   const closeReview = () => {
     setPreview(null)
     setReviewView(null)
     practice.stop()
     setInstant(true)
-    actions.closeReview()
+    if (friendMode) friend.closeReview()
+    else actions.closeReview()
   }
   const switchMode = (next: Mode) => {
     if (next === mode) return
@@ -98,11 +111,12 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
   const [savedReview, setSavedReview] = useState<ReviewSnapshot | null>(null)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'failed'>('idle')
   const saveReview = async () => {
-    const snapshot = coach.review
+    const snapshot = review
     if (!snapshot || saveState === 'saving') return
     setSaveState('saving')
     try {
-      await savedGames.save(snapshot, coach.level ? `${coach.level.name} (~${coach.level.elo})` : null, coach.assistance)
+      if (friendMode) await savedGames.save(snapshot, `${friend.opponent ?? 'A friend'} (friend)`, friend.view?.help ?? 'unassisted')
+      else await savedGames.save(snapshot, coach.level ? `${coach.level.name} (~${coach.level.elo})` : null, coach.assistance)
       setSavedReview(snapshot)
       setSaveState('idle')
     } catch {
@@ -189,7 +203,7 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
     }
   }, [viewing, plies, coach.gradesHidden, canPlayHere, yourTurnThere])
 
-  const shown = preview ?? (review ? (practiceBoard ? null : reviewPreview) : browse)
+  const shown = preview ?? (review ? (practiceBoard ? null : reviewPreview) : mode === 'play' ? browse : null)
   const shownGame = useMemo(() => (shown ? new Chess(shown.fen) : null), [shown])
   useEffect(() => {
     api.levels().then(setLevels, (e: Error) => setBackendError(e.message))
@@ -199,7 +213,7 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
     }, () => {}) // without it, the built-in comments are used
   }, [])
 
-  useEffect(() => setInstant(false), [plies.length])
+  useEffect(() => setInstant(false), [plies.length, friend.plies.length])
 
   // Once a puzzle is solved (or played on after seeing the solution), the opponent plays on: a graded game against
   // the level of your last game.
@@ -245,6 +259,12 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
         selectReviewMove(ply)
         return
       }
+      if (friendMode) {
+        const at = friend.viewing ?? friend.plies.length
+        if (e.key === 'ArrowLeft') friend.step(at - 1)
+        else if (friend.viewing !== null) friend.step(friend.viewing + 1)
+        return
+      }
       const at = viewing ?? plies.length
       if (e.key === 'ArrowLeft') stepTo(at - 1)
       else if (viewing !== null) stepTo(viewing + 1)
@@ -256,7 +276,7 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
 
   const userChar = userColor === 'white' ? 'w' : 'b'
   // The side the board faces: yours in the game on show (a saved game's may differ from the current game's).
-  const side = review?.userColor ?? userColor
+  const side = review?.userColor ?? (friendMode ? (friend.you ?? 'white') : userColor)
   const sideChar = side === 'white' ? 'w' : 'b'
   const orientation = flipped ? (side === 'white' ? 'black' : 'white') : side
   const last = plies.at(-1)
@@ -274,11 +294,30 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
         ? (review.evals[reviewPreview?.played ? reviewView.ply : reviewView.ply - 1] ?? null)
         : (review.evals.at(-1) ?? null)
   const settingUp = phase === 'setup' || showSetup
-  // The clocks, for a timed game in Play: the opponent's above the board and yours below (whichever way it faces).
-  const showClocks = mode === 'play' && !!coach.clock && phase !== 'setup' && !settingUp
-  const toMove = phase === 'over' ? null : coach.game.turn() === 'w' ? 'white' : 'black'
-  const clockLabel = (side: 'white' | 'black') => (side === userColor ? 'You' : (coach.level?.name ?? 'Opponent'))
-  const opening = useMemo(() => openingOf(plies), [plies])
+  // The clocks, for a timed game in Play or against a friend: the opponent's above the board and yours below
+  // (whichever way it faces).
+  const friendPlaying = friendMode && !!friend.view && friend.view.status !== 'waiting'
+  const clock = mode === 'play' && phase !== 'setup' && !settingUp ? coach.clock : friendPlaying ? friend.clock : null
+  const toMove = friendMode
+    ? friend.view?.status === 'playing'
+      ? friend.plies.length % 2 === 0
+        ? 'white'
+        : 'black'
+      : null
+    : phase === 'over'
+      ? null
+      : coach.game.turn() === 'w'
+        ? 'white'
+        : 'black'
+  const clockLabel = (side: 'white' | 'black') =>
+    friendMode
+      ? side === friend.you
+        ? 'You'
+        : (friend.opponent ?? 'Opponent')
+      : side === userColor
+        ? 'You'
+        : (coach.level?.name ?? 'Opponent')
+  const opening = useMemo(() => openingOf(friendMode ? friend.plies : plies), [friendMode, friend.plies, plies])
 
   // What the board shows: a puzzle, a move being retried from the review, a move being previewed, or the game.
   let view: ComponentProps<typeof Board>
@@ -355,6 +394,19 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
       onMove: shown === browse && canPlayHere ? (uci) => playFromHere(uci) : () => {},
       caption: shown.label,
     }
+  } else if (friendMode) {
+    const b = friend.board
+    view = {
+      game: b?.game ?? new Chess(),
+      orientation,
+      interactive: b?.interactive ?? false,
+      userColor: sideChar,
+      lastMove: b?.lastMove ?? null,
+      badge: b?.badge ?? null,
+      arrows: [],
+      onMove: friend.move,
+      caption: b?.caption,
+    }
   } else if (savedMode) {
     // A saved game's final position, or an empty board while choosing one.
     const final = review?.plies.at(-1)
@@ -388,6 +440,43 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
     }
   }
 
+  // The game review's panel: of the game in Play, a game against a friend, or a saved game.
+  const reviewPanel = (props: Pick<ComponentProps<typeof GameReview>, 'onClose' | 'closeLabel' | 'subtitle' | 'actions'>) =>
+    review && (
+      <GameReview
+        review={review}
+        selected={practice.practice?.ply ?? reviewView?.ply ?? null}
+        onSelect={selectReviewMove}
+        practice={practice.practice}
+        onPractice={(ply) => {
+          setReviewView(null)
+          setInstant(true)
+          practice.start(ply)
+        }}
+        onTryAgain={practice.tryAgain}
+        onShowBest={practice.showBest}
+        onStopPractice={practice.stop}
+        onPreview={showPreview}
+        {...props}
+      />
+    )
+  const saveButton = (
+    <button
+      className={savedReview === review ? '' : 'primary'}
+      onClick={() => void saveReview()}
+      disabled={savedReview === review || saveState === 'saving'}
+      title="Keep this game in Saved, to go over it again later"
+    >
+      {savedReview === review
+        ? '✓ Saved'
+        : saveState === 'saving'
+          ? 'Saving…'
+          : saveState === 'failed'
+            ? "Couldn't save: try again"
+            : '💾 Save game'}
+    </button>
+  )
+
   return (
     <div className="app">
       <header>
@@ -399,7 +488,12 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
             vs {coach.level.name} (~{coach.level.elo}) · you play {userColor}
           </span>
         )}
-        {mode === 'play' && opening && phase !== 'setup' && (
+        {friendPlaying && (
+          <span className="muted">
+            vs {friend.opponent} (friend) · you play {friend.you}
+          </span>
+        )}
+        {((mode === 'play' && phase !== 'setup') || friendPlaying) && opening && (
           <span className="opening-name" title={`${opening.eco ?? ''} ${opening.name}`.trim()}>
             📖 {opening.name}
           </span>
@@ -419,13 +513,26 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
             📚 Openings
             {!!openings.repertoire?.due && <span className="count">{openings.repertoire.due}</span>}
           </button>
+          <button
+            className={friendMode ? 'active' : ''}
+            onClick={() => switchMode('friend')}
+            aria-pressed={friendMode}
+            title={friend.myTurn && !friendMode ? 'Your move against your friend' : 'Play a friend'}
+          >
+            👥 Friend
+            {friend.myTurn && !friendMode ? (
+              <span className="count">!</span>
+            ) : (
+              !friend.view && !!friend.lobby?.challenges.length && <span className="count">{friend.lobby.challenges.length}</span>
+            )}
+          </button>
           <button className="player-button" onClick={onSwitchPlayer} title="Switch player">
             👤 {player}
           </button>
         </nav>
       </header>
       <main>
-        <div className={`board-area ${showClocks ? 'timed' : ''}`}>
+        <div className={`board-area ${clock ? 'timed' : ''}`}>
           {/* No evaluation while solving a puzzle or during an unassisted game: it would give away whether there's
               something to find. (Once a puzzle is finished, it follows the position you explore.) */}
           <EvalBar
@@ -440,6 +547,8 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
                   : null
                 : savedMode
                   ? reviewEvaluation
+                  : friendMode
+                  ? (reviewEvaluation ?? friend.evaluation)
                   : phase === 'setup' || coach.gradesHidden
                   ? null
                   : (reviewEvaluation ?? evaluation)
@@ -447,17 +556,17 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
             orientation={view.orientation}
           />
           <div className="board-column">
-            {showClocks && coach.clock && (
+            {clock && (
               <GameClock
-                clock={coach.clock}
+                clock={clock}
                 side={view.orientation === 'white' ? 'black' : 'white'}
                 label={clockLabel(view.orientation === 'white' ? 'black' : 'white')}
                 toMove={toMove === (view.orientation === 'white' ? 'black' : 'white')}
               />
             )}
             <Board {...view} animate={!instant} />
-            {showClocks && coach.clock && (
-              <GameClock clock={coach.clock} side={view.orientation} label={clockLabel(view.orientation)} toMove={toMove === view.orientation} />
+            {clock && (
+              <GameClock clock={clock} side={view.orientation} label={clockLabel(view.orientation)} toMove={toMove === view.orientation} />
             )}
           </div>
         </div>
@@ -497,36 +606,27 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
             />
           ) : savedMode ? (
             review && savedGames.open ? (
-              <GameReview
-                review={review}
-                selected={practice.practice?.ply ?? reviewView?.ply ?? null}
-                onSelect={selectReviewMove}
-                practice={practice.practice}
-                onPractice={(ply) => {
-                  setReviewView(null)
-                  setInstant(true)
-                  practice.start(ply)
-                }}
-                onTryAgain={practice.tryAgain}
-                onShowBest={practice.showBest}
-                onStopPractice={practice.stop}
-                onPreview={showPreview}
-                onClose={closeSaved}
-                closeLabel="← Saved games"
-                subtitle={`${matchup(savedGames.open.summary)} · ${savedOn(savedGames.open.summary.saved)}`}
-                actions={
-                  confirmDelete ? (
-                    <>
-                      <button onClick={() => void savedGames.remove(savedGames.open!.summary.id)}>Delete for good</button>
-                      <button onClick={() => setConfirmDelete(false)}>Keep it</button>
-                    </>
-                  ) : (
-                    <button onClick={() => setConfirmDelete(true)}>🗑 Delete</button>
-                  )
-                }
-              />
+              reviewPanel({
+                onClose: closeSaved,
+                closeLabel: '← Saved games',
+                subtitle: `${matchup(savedGames.open.summary)} · ${savedOn(savedGames.open.summary.saved)}`,
+                actions: confirmDelete ? (
+                  <>
+                    <button onClick={() => void savedGames.remove(savedGames.open!.summary.id)}>Delete for good</button>
+                    <button onClick={() => setConfirmDelete(false)}>Keep it</button>
+                  </>
+                ) : (
+                  <button onClick={() => setConfirmDelete(true)}>🗑 Delete</button>
+                ),
+              })
             ) : (
               <SavedGames games={savedGames.games} onOpen={openSaved} onDelete={(id) => void savedGames.remove(id)} />
+            )
+          ) : friendMode ? (
+            review ? (
+              reviewPanel({ onClose: closeReview, actions: saveButton })
+            ) : (
+              <FriendPanel friend={friend} onReview={openReview} onFlip={() => setFlipped((f) => !f)} />
             )
           ) : settingUp ? (
             levels.length > 0 ? (
@@ -546,38 +646,7 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
               <p className="muted">Connecting to the engine…</p>
             )
           ) : review ? (
-            <GameReview
-              review={review}
-              selected={practice.practice?.ply ?? reviewView?.ply ?? null}
-              onSelect={selectReviewMove}
-              practice={practice.practice}
-              onPractice={(ply) => {
-                setReviewView(null)
-                setInstant(true)
-                practice.start(ply)
-              }}
-              onTryAgain={practice.tryAgain}
-              onShowBest={practice.showBest}
-              onStopPractice={practice.stop}
-              onPreview={showPreview}
-              onClose={closeReview}
-              actions={
-                <button
-                  className={savedReview === review ? '' : 'primary'}
-                  onClick={() => void saveReview()}
-                  disabled={savedReview === review || saveState === 'saving'}
-                  title="Keep this game in Saved, to go over it again later"
-                >
-                  {savedReview === review
-                    ? '✓ Saved'
-                    : saveState === 'saving'
-                      ? 'Saving…'
-                      : saveState === 'failed'
-                        ? "Couldn't save: try again"
-                        : '💾 Save game'}
-                </button>
-              }
-            />
+            reviewPanel({ onClose: closeReview, actions: saveButton })
           ) : (
             <>
               <CoachPanel

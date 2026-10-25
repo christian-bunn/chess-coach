@@ -258,6 +258,14 @@ your friend.
 - **Who's playing:** the first time anyone opens the coach, it asks for their name. Each name has its own
   puzzles, saved games and repertoire, in `progress/players/<name>/`. **👤 Your name** at the top right
   switches player. Names aren't passwords: typing someone's name opens their progress.
+- **Playing each other:** **👥 Friend** at the top right has the lobby. Post a challenge (your colour, a time
+  control, and **📊 Graded**, where you both see every move's grade and the eval bar, or **⚔ Unassisted**,
+  where neither of you sees anything until it's over), and it shows up in your friend's list with a **Join**
+  button. The server keeps the moves and the clocks, so each move shows up on the other screen straight away,
+  and a page that's reloaded picks the game up again. **½ Offer draw** stands until someone moves, and
+  **🏳 Resign** asks first. Afterwards you each get the game review (and can save it), and your mistakes
+  become your own puzzles. A **!** on 👥 Friend means it's your move there while you're elsewhere. Games
+  live in the server's memory, so restarting it ends them.
 - **Needs** `cloudflared` on your PATH or in `~/.local/bin` (from
   [Cloudflare's releases](https://github.com/cloudflare/cloudflared/releases)). Your engine does the work for
   both of you, which is fine for a couple of players.
@@ -280,6 +288,8 @@ cd backend && .venv/bin/python -m pytest
 - `tests/test_puzzles.py` checks the puzzle schedule (with a fake clock), repeats, and saving to disk.
 - `tests/test_games.py` checks saving, listing and deleting saved games.
 - `tests/test_repertoire.py` checks the opening repertoire's schedule (with a fake clock).
+- `tests/test_friends.py` checks games between two players: the lobby, turns, endings, draw offers and the
+  clocks (with a fake clock).
 
 ## How moves are graded
 
@@ -323,7 +333,7 @@ Thresholds are constants at the top of `backend/app/grading.py`.
 backend/app/
   main.py      FastAPI routes: /api/levels, /api/config, /api/analyze, /api/grade, /api/bot-move,
                /api/hint, /api/puzzles..., /api/games..., /api/openings..., /api/repertoire...,
-               /api/speech
+               /api/friends..., /api/speech, and the built page
   engine.py    Two Stockfish processes (analysis + opponent), position cache, null-move threat search
   grading.py   win%, material counting, classification -> MoveGrade
   facts.py     Why a bad move is bad, and whether a threat is real, from the engine's lines
@@ -336,6 +346,7 @@ backend/app/
   games.py     Games saved from the review
   repertoire.py  Your opening repertoire, with spaced repetition
   players.py   Each player's progress, kept apart by name
+  friends.py   Games between two players: the lobby, turns, clocks and endings
   levels.py    Opponent strength presets
   config.py    Settings from env vars (COACH_ANALYSIS_DEPTH, COACH_ENGINE_THREADS, ...)
 backend/data/openings/  Lichess's openings list (a.tsv ... e.tsv: ECO code, name, moves)
@@ -350,8 +361,9 @@ frontend/src/
   voice.ts              Playing the coach's voice, with notation turned into words
   moveRefs.ts           Finding the moves a coach message mentions, so they can be shown on the board
   player.ts             Who's playing (their name picks their progress on the server)
+  useFriendGame.ts      Playing a friend: the lobby, following the game, its clock and review
   components/           Board, EvalBar, GameClock, CoachPanel, GameReview, PuzzlePanel, SavedGames,
-                        OpeningsPanel, MoveList, MoveRefText, NewGame, WhoIsPlaying
+                        OpeningsPanel, MoveList, MoveRefText, NewGame, WhoIsPlaying, FriendPanel
 share.sh                Share the coach with a friend through a Cloudflare quick tunnel
 ```
 

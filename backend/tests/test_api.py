@@ -8,6 +8,7 @@ from app.config import find_stockfish
 from app.grading import grade_move
 from app.levels import LEVELS
 from app.main import app
+from app.friends import FriendGames
 from app.players import Players, player_id
 
 try:
@@ -257,6 +258,8 @@ def test_each_player_has_their_own_progress(client, tmp_path):
     assert client.get("/api/puzzles", headers=friend).json()["total"] == 0
     assert client.get(f"/api/puzzles/{saved['id']}", headers=friend).status_code == 404
     assert client.get("/api/puzzles", headers={"X-Player": "  TESTER "}).json()["total"] == 1  # same name
+    assert client.get("/api/puzzles", headers={"X-Player": "Jos%C3%A9"}).json()["total"] == 0  # sent URL-encoded
+    assert not (tmp_path / "players" / "josé").exists()  # reading doesn't make a folder
     # Without a name, there's no progress to use.
     assert client.get("/api/puzzles", headers={"X-Player": ""}).status_code == 400
     assert client.get("/api/games", headers={"X-Player": "?!"}).status_code == 400
@@ -265,7 +268,39 @@ def test_each_player_has_their_own_progress(client, tmp_path):
 def test_player_ids():
     assert player_id("Christian Bunn") == "christian-bunn"
     assert player_id("  Sam ") == "sam"
-    assert player_id("Jos%C3%A9") == "josé"  # the page sends names URL-encoded
+    assert player_id("José") == "josé"
     assert player_id("../../etc") == "etc"
     assert player_id("x" * 50) == "x" * 32
     assert player_id("") is None and player_id("!!") is None
+
+
+def test_a_game_between_friends(client, tmp_path):
+    client.app.state.players = Players(tmp_path)
+    client.app.state.friends = FriendGames()
+    ann, bob = {"X-Player": "Ann"}, {"X-Player": "Bob"}
+    posted = client.post("/api/friends/challenges", json={"color": "white", "time_control": "5", "help": "graded"}, headers=ann)
+    assert posted.status_code == 200, posted.text
+    gid = posted.json()["id"]
+    assert [c["name"] for c in client.get("/api/friends", headers=bob).json()["challenges"]] == ["Ann"]
+    joined = client.post(f"/api/friends/games/{gid}/join", headers=bob).json()
+    assert joined["you"] == "black" and joined["names"] == {"white": "Ann", "black": "Bob"}
+    assert joined["clock"]["running"] == "white"
+
+    move = lambda who, uci: client.post(f"/api/friends/games/{gid}/move", json={"uci": uci}, headers=who)
+    assert move(ann, "e2e4").json()["sans"] == ["e4"]
+    assert move(ann, "d2d4").status_code == 409  # Bob's turn
+    move(bob, "d7d5")
+    view = move(ann, "d1g4").json()  # hangs the queen
+    # Follow the game, as the page does, until every move is graded.
+    for _ in range(20):
+        if all(view["grades"]):
+            break
+        view = client.get(f"/api/friends/games/{gid}", params={"after": view["version"]}, headers=bob).json()
+    assert [g["classification"] for g in view["grades"]] == ["book", "book", "blunder"]
+    # The blunder is Ann's puzzle, not Bob's.
+    assert client.get("/api/puzzles", headers=ann).json()["total"] == 1
+    assert client.get("/api/puzzles", headers=bob).json()["total"] == 0
+
+    assert client.get(f"/api/friends/games/{gid}", headers={"X-Player": "Cat"}).status_code == 403
+    over = client.post(f"/api/friends/games/{gid}/resign", headers=bob).json()
+    assert over["status"] == "over" and over["result"] == {"reason": "resigned", "winner": "white"}

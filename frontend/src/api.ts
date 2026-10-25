@@ -205,6 +205,49 @@ export interface RepertoireEntry {
   last_mistakes: number | null
 }
 
+/** In a game against a friend: "graded" shows both players the grades and the evaluation as they play;
+ * "unassisted" shows nothing until the game is over. */
+export type FriendHelp = 'graded' | 'unassisted'
+
+export interface FriendChallenge {
+  id: string
+  name: string
+  /** The colour the challenger plays. */
+  color: 'white' | 'black' | 'random'
+  time_control: string
+  help: FriendHelp
+}
+
+export interface FriendLobby {
+  /** Challenges other players have posted. */
+  challenges: FriendChallenge[]
+  /** Your game in progress, or your challenge waiting for someone. */
+  game: string | null
+}
+
+/** A game against a friend, as you see it (mirrors backend/app/friends.py FriendGames.view). */
+export interface FriendGameView {
+  id: string
+  status: 'waiting' | 'playing' | 'over'
+  you: 'white' | 'black' | null
+  host: boolean
+  names: { white: string | null; black: string | null }
+  host_name: string
+  host_color: 'white' | 'black' | 'random'
+  time_control: string
+  help: FriendHelp
+  moves: string[]
+  sans: string[]
+  /** Hidden (null) in an unassisted game until it's over; a move's grade is null until it's been graded. */
+  grades: (MoveGrade | null)[] | null
+  evals: (Eval | null)[] | null
+  /** Time left (ms) as of the reply; `running` is the side whose clock is going. */
+  clock: { white: number; black: number; increment: number; running: 'white' | 'black' | null } | null
+  result: { reason: string; winner: 'white' | 'black' | null } | null
+  draw_offer: 'white' | 'black' | null
+  version: number
+}
+
 export interface Repertoire {
   entries: RepertoireEntry[]
   total: number
@@ -255,5 +298,19 @@ export const api = {
       request<{ grade: MoveGrade; correct: boolean }>(`/puzzles/${id}/attempt`, { uci }, signal),
     result: (id: string, solved: boolean) => request<Puzzle>(`/puzzles/${id}/result`, { solved }),
     remove: (id: string) => request<{ removed: boolean }>(`/puzzles/${id}`, undefined, undefined, 'DELETE'),
+  },
+  friends: {
+    lobby: () => request<FriendLobby>('/friends'),
+    challenge: (body: { color: 'white' | 'black' | 'random'; time_control: string; help: FriendHelp }) =>
+      request<FriendGameView>('/friends/challenges', body),
+    cancel: (id: string) => request<{ cancelled: boolean }>(`/friends/games/${id}`, undefined, undefined, 'DELETE'),
+    join: (id: string) => request<FriendGameView>(`/friends/games/${id}/join`, {}),
+    /** The game once it has changed since `after` (its version), or after a while: a long poll. */
+    follow: (id: string, after: number, signal?: AbortSignal) =>
+      request<FriendGameView>(`/friends/games/${id}?after=${after}`, undefined, signal),
+    move: (id: string, uci: string) => request<FriendGameView>(`/friends/games/${id}/move`, { uci }),
+    resign: (id: string) => request<FriendGameView>(`/friends/games/${id}/resign`, {}),
+    draw: (id: string, action: 'offer' | 'accept' | 'decline') =>
+      request<FriendGameView>(`/friends/games/${id}/draw`, { action }),
   },
 }

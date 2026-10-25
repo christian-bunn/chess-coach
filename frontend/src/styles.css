@@ -664,6 +664,42 @@ button.move-ref:focus-visible {
   font-size: 0.85rem;
 }
 
+/* Playing a friend */
+
+.new-game.friend {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.new-game h3 {
+  margin: 4px 0 8px;
+  font-size: 1rem;
+}
+.new-game.friend p {
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+.challenges {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.challenges li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--panel-raised);
+  border-radius: 6px;
+}
+.friend-error {
+  color: var(--danger);
+}
+
 /* Who's playing */
 
 .player-button {

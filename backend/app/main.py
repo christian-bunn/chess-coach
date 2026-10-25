@@ -12,6 +12,7 @@ import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Literal
+from urllib.parse import unquote
 
 import chess
 import chess.engine
@@ -29,6 +30,7 @@ from .grading import RETRY_CLASSIFICATIONS, Eval, MoveGrade, grade_move, san_lin
 from .levels import DEFAULT_LEVEL, LEVELS, LEVELS_BY_ID
 from .openings import BookLine, continuations, featured, name_of, opening, practice_moves, search
 from .openings import load as load_openings, mark_book
+from .friends import FriendGame, FriendGames, GameError
 from .games import GameStore
 from .players import Players, Progress, player_id
 from .puzzles import Puzzle, PuzzleStore
@@ -47,6 +49,8 @@ async def lifespan(app: FastAPI):
     app.state.engines = engines
     await asyncio.to_thread(load_openings)
     app.state.players = Players(settings.progress_dir)
+    app.state.friends = FriendGames()
+    app.state.grading = set()  # background grading of friend games' moves (kept so they aren't dropped)
     speech = Speech(settings.voices_dir)
     speech.start()
     app.state.speech = speech
@@ -108,6 +112,16 @@ class SaveGameIn(BaseModel):
     opening: str | None = Field(None, max_length=200)
     accuracy: float | None = None
     opponent_accuracy: float | None = None
+
+
+class ChallengeIn(BaseModel):
+    color: Literal["white", "black", "random"]
+    time_control: str = Field(max_length=10)
+    help: Literal["graded", "unassisted"]
+
+
+class DrawIn(BaseModel):
+    action: Literal["offer", "accept", "decline"]
 
 
 class ResultIn(BaseModel):
@@ -276,13 +290,19 @@ async def hint_endpoint(body: HintIn, request: Request) -> HintOut:
 # ------------------------------------------------------------------------------------- puzzles
 
 
-def _progress(request: Request) -> Progress:
-    """The progress of whoever is playing: the page sends their name in the X-Player header."""
-    pid = player_id(request.headers.get("x-player", ""))
+def _who(request: Request) -> tuple[str, str]:
+    """Who's playing: their id and the name they typed, which the page sends in the X-Player header."""
+    name = unquote(request.headers.get("x-player", "")).strip()[:40]
+    pid = player_id(name)
     if pid is None:
         raise HTTPException(400, "Choose who's playing first")
+    return pid, name
+
+
+def _progress(request: Request) -> Progress:
+    """The progress of whoever is playing."""
     players: Players = request.app.state.players
-    return players.progress(pid)
+    return players.progress(_who(request)[0])
 
 
 def _puzzles(request: Request) -> PuzzleStore:
@@ -328,11 +348,20 @@ async def save_puzzle(body: MovesIn, request: Request) -> dict:
     board = _replay(body.moves[:-1])
     move = _replay(body.moves).peek()
     grade = await _grade(_engines(request), board, move)
+    puzzle = _save_as_puzzle(_puzzles(request), board, move, grade, body.moves[:-1])
+    return {"saved": puzzle is not None, "id": puzzle.id if puzzle else None}
+
+
+def _save_as_puzzle(
+    store: PuzzleStore, board: chess.Board, move: chess.Move, grade: MoveGrade, moves: list[str]
+) -> Puzzle | None:
+    """Save `move` (played on `board`, reached by `moves`) as a puzzle if it was a mistake, a missed win or a
+    blunder, or missed a mate."""
     if not (grade.classification in RETRY_CLASSIFICATIONS or grade.missed_mate_in) or not grade.best_move:
-        return {"saved": False, "id": None}
-    puzzle = _puzzles(request).add(
+        return None
+    return store.add(
         board.epd(),
-        moves=body.moves[:-1],
+        moves=moves,
         color="white" if board.turn == chess.WHITE else "black",
         played=move.uci(),
         played_san=board.san(move),
@@ -342,7 +371,6 @@ async def save_puzzle(body: MovesIn, request: Request) -> dict:
         comment=describe_user_move(grade, board),
         opening=grade.opening,
     )
-    return {"saved": True, "id": puzzle.id}
 
 
 @app.post("/api/puzzles/{pid}/attempt")
@@ -507,6 +535,135 @@ async def remove_from_repertoire(eid: str, request: Request) -> dict:
     if not _repertoire(request).remove(eid):
         raise HTTPException(404, "Not in the repertoire")
     return {"removed": True}
+
+
+# -------------------------------------------------------------------------------- friend games
+
+
+def _friends(request: Request) -> FriendGames:
+    return request.app.state.friends
+
+
+def _friendly(call):
+    """Run a FriendGames call, turning its GameError into the HTTP error."""
+    try:
+        return call()
+    except GameError as e:
+        raise HTTPException(e.status, str(e))
+
+
+def _grade_in_background(request: Request, game: FriendGame, index: int) -> None:
+    """Grade move `index` of a friend game, for the review (and the badges, in a graded game). A mistake becomes a
+    puzzle for the player who made it, as in games against the computer."""
+    app_ = request.app
+
+    async def run() -> None:
+        board = chess.Board()
+        for uci in game.moves[:index]:
+            board.push_uci(uci)
+        move = chess.Move.from_uci(game.moves[index])
+        mover = game.white if board.turn == chess.WHITE else game.black
+        try:
+            grade = await _grade(app_.state.engines, board, move)
+        except Exception:
+            log.exception("Couldn't grade move %d of friend game %s", index + 1, game.id)
+            return
+        grade.message = describe_user_move(grade, board)
+        if mover:
+            _save_as_puzzle(app_.state.players.progress(mover).puzzles, board, move, grade, game.moves[:index])
+        game.grades[index] = grade
+        game.evals[index + 1] = grade.eval_after
+        game.changed()
+
+    _in_background(request, run())
+
+
+def _evaluate_start(request: Request, game: FriendGame) -> None:
+    """The starting position's evaluation, for the graph in the review."""
+
+    async def run() -> None:
+        analysis = await _engines(request).analyse(chess.Board())
+        game.evals[0] = Eval.from_white_score(analysis.white_score())
+        game.changed()
+
+    _in_background(request, run())
+
+
+def _in_background(request: Request, work) -> None:
+    tasks: set = request.app.state.grading
+    task = asyncio.create_task(work)
+    tasks.add(task)
+    task.add_done_callback(tasks.discard)
+
+
+@app.get("/api/friends")
+async def friends_lobby(request: Request) -> dict:
+    """The challenges other players have posted, and the id of your own game or challenge (or null)."""
+    pid, _ = _who(request)
+    return _friends(request).lobby(pid)
+
+
+@app.post("/api/friends/challenges")
+async def post_challenge(body: ChallengeIn, request: Request) -> dict:
+    """Post a challenge for someone to join: your colour ("random" is decided when they join), a time control
+    (an id like "10+5", or "untimed") and the help: "graded" or "unassisted"."""
+    pid, name = _who(request)
+    friends = _friends(request)
+    game = _friendly(lambda: friends.challenge(pid, name, body.color, body.time_control, body.help))
+    return friends.view(game, pid)
+
+
+@app.post("/api/friends/games/{gid}/join")
+async def join_challenge(gid: str, request: Request) -> dict:
+    pid, name = _who(request)
+    friends = _friends(request)
+    game = _friendly(lambda: friends.join(pid, name, gid))
+    _evaluate_start(request, game)
+    return friends.view(game, pid)
+
+
+@app.delete("/api/friends/games/{gid}")
+async def cancel_challenge(gid: str, request: Request) -> dict:
+    pid, _ = _who(request)
+    _friendly(lambda: _friends(request).cancel(pid, gid))
+    return {"cancelled": True}
+
+
+@app.get("/api/friends/games/{gid}")
+async def follow_game(gid: str, request: Request, after: int = -1) -> dict:
+    """The game as you see it, once it has changed since version `after` (or after a while if it hasn't): pages
+    follow a game by asking again with the version they got."""
+    pid, _ = _who(request)
+    friends = _friends(request)
+    game = _friendly(lambda: friends.get(gid))
+    if pid != game.host and game.color_of(pid) is None:
+        raise HTTPException(403, "You're not playing in that game")
+    game.seen[pid] = friends.clock()
+    await friends.wait(game, after)
+    return friends.view(game, pid)
+
+
+@app.post("/api/friends/games/{gid}/move")
+async def friend_move(gid: str, body: AttemptIn, request: Request) -> dict:
+    pid, _ = _who(request)
+    friends = _friends(request)
+    game, index = _friendly(lambda: friends.move(pid, gid, body.uci))
+    _grade_in_background(request, game, index)
+    return friends.view(game, pid)
+
+
+@app.post("/api/friends/games/{gid}/resign")
+async def friend_resign(gid: str, request: Request) -> dict:
+    pid, _ = _who(request)
+    friends = _friends(request)
+    return friends.view(_friendly(lambda: friends.resign(pid, gid)), pid)
+
+
+@app.post("/api/friends/games/{gid}/draw")
+async def friend_draw(gid: str, body: DrawIn, request: Request) -> dict:
+    pid, _ = _who(request)
+    friends = _friends(request)
+    return friends.view(_friendly(lambda: friends.draw(pid, gid, body.action)), pid)
 
 
 # ------------------------------------------------------------------------------------------ page
