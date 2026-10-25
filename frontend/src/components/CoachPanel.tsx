@@ -104,7 +104,7 @@ export function CoachPanel({
           <button onClick={onContinue}>Keep my move</button>
         </div>
       )}
-      {phase === 'over' && (
+      {phase === 'over' && canReview && (
         <div className="coach-actions">
           <button className="primary" onClick={onReview}>
             📊 Game review

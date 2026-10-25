@@ -1,6 +1,10 @@
 import { Chess } from 'chess.js'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, type Classification, type Eval, type Level, type MoveGrade } from './api'
+import {
+  UNTIMED, afterMove, cannotMate, describeTimeControl, newClock, startClock, stopClock, timeControl, timeLeft,
+  TIME_CONTROLS, type Clock,
+} from './clock'
 import { GOOD_GRADES } from './grades'
 import { speak, stopSpeaking, whenQuiet } from './voice'
 
@@ -87,6 +91,12 @@ interface GameState {
   assistance: Assistance
   /** The student resigned. */
   resigned: boolean
+  /** The game's clocks, or null for an untimed game. */
+  clock: Clock | null
+  /** The time control for new games (an id from TIME_CONTROLS, or UNTIMED). */
+  timeControl: string
+  /** How the game ended if a side ran out of time. */
+  timedOut: string | null
 }
 
 const SETTING_KEYS = {
@@ -95,6 +105,7 @@ const SETTING_KEYS = {
   voice: 'chess-coach.voice',
   assistance: 'chess-coach.assistance',
   legacyAssisted: 'chess-coach.assisted', // "on"/"off", before Graded games existed
+  timeControl: 'chess-coach.time-control',
 }
 
 function loadSetting<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
@@ -199,10 +210,21 @@ const INITIAL: GameState = {
   reviewOpen: false,
   assistance: 'coached',
   resigned: false,
+  clock: null,
+  timeControl: UNTIMED,
+  timedOut: null,
 }
 
 /** `onPuzzleSaved`: called when one of the student's moves has been saved as a puzzle. */
-export function useCoachGame(onPuzzleSaved?: () => void) {
+// The most the opponent's clock is charged for one move. The backend's reply also includes the analysis for grading
+// the move, which isn't the opponent thinking.
+const MAX_BOT_THINK_MS = 1500
+
+/**
+ * `onPuzzleSaved`: called when one of the student's moves has been saved as a puzzle.
+ * `paused`: the game isn't on screen (another section is open), so the student's clock stops.
+ */
+export function useCoachGame(onPuzzleSaved?: () => void, paused = false) {
   const [state, setState] = useState<GameState>(() => ({
     ...INITIAL,
     retryMode: loadSetting(SETTING_KEYS.retryMode, ['mistakes', 'blunders', 'off'], 'mistakes'),
@@ -213,6 +235,7 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
       ASSISTANCE,
       loadSetting(SETTING_KEYS.legacyAssisted, ['on', 'off'], 'on') === 'off' ? 'unassisted' : 'coached',
     ),
+    timeControl: loadSetting(SETTING_KEYS.timeControl, [UNTIMED, ...TIME_CONTROLS.map((t) => t.id)], UNTIMED),
   }))
   // Async handlers read and write through this ref so they never act on a stale snapshot.
   const stateRef = useRef(state)
@@ -285,12 +308,25 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
     try {
       // The opponent waits until the comment on the student's move has been read, so the board stays in step
       // with the voice. Its move is worked out in the meantime.
-      const [grade] = await Promise.all([api.botMove(plies.map((p) => p.uci), level?.id ?? 'casual', signal), whenQuiet(signal)])
+      const asked = Date.now()
+      let thought = 0
+      const reply = api.botMove(plies.map((p) => p.uci), level?.id ?? 'casual', signal).then((g) => {
+        thought = Math.min(Date.now() - asked, MAX_BOT_THINK_MS)
+        return g
+      })
+      const [grade] = await Promise.all([reply, whenQuiet(signal)])
       if (signal.aborted) return
+      const botSide: Side = stateRef.current.userColor === 'white' ? 'black' : 'white'
+      const clock = stateRef.current.clock
+      if (clock && clock[botSide] - thought <= 0) {
+        timeUp(botSide)
+        return
+      }
       update((s) =>
         finishTurn(
           {
             ...s,
+            clock: s.clock && afterMove(s.clock, botSide, thought),
             plies: [...s.plies, { uci: grade.uci, san: grade.san, grade }],
             evals: [...s.evals.slice(0, grade.ply), grade.eval_after],
           },
@@ -350,14 +386,22 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
     }
   }
 
-  /** Start a game. Only a coached game gets comments, hints, retries and take-backs. */
-  const newGame = (color: Side | 'random', level: Level, assistance: Assistance = 'coached') => {
+  /** Start a game. Only a coached game gets comments, hints, retries and take-backs. `timing`: an id from
+   * TIME_CONTROLS, or UNTIMED. */
+  const newGame = (
+    color: Side | 'random',
+    level: Level,
+    assistance: Assistance = 'coached',
+    timing: string = stateRef.current.timeControl,
+  ) => {
     cancelPending()
     stopSpeaking()
     replies.current.abort()
     replies.current = new AbortController()
     const userColor: Side = color === 'random' ? (Math.random() < 0.5 ? 'white' : 'black') : color
     saveSetting(SETTING_KEYS.assistance, assistance)
+    saveSetting(SETTING_KEYS.timeControl, timing)
+    const tc = timeControl(timing)
     const vs = `You're playing ${userColor} against ${level.name} (about ${level.elo})`
     const intro =
       assistance === 'unassisted'
@@ -377,10 +421,12 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
       coachMode: s.coachMode,
       voice: s.voice,
       assistance,
+      timeControl: timing,
+      clock: tc ? newClock(tc) : null,
       userColor,
       level,
       phase: userColor === 'white' ? 'user' : 'bot',
-      messages: [message('info', intro)],
+      messages: [message('info', tc ? `${intro} ${describeTimeControl(tc)}` : intro)],
     }))
     const signal = pending.current.signal
     api
@@ -406,6 +452,7 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
       retryMode: s.retryMode,
       coachMode: s.coachMode,
       voice: s.voice,
+      timeControl: s.timeControl,
       assistance,
       userColor: color,
       level,
@@ -435,8 +482,18 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
     } catch {
       return // illegal
     }
+    if (s.clock && timeLeft(s.clock, s.userColor) <= 0) {
+      timeUp(s.userColor)
+      return
+    }
     stopSpeaking() // the student has moved on
-    update((s) => ({ ...s, plies: [...s.plies, { uci, san, grade: null }], hintArrow: null, pieceHint: null }))
+    update((s) => ({
+      ...s,
+      clock: s.clock && afterMove(stopClock(s.clock), s.userColor),
+      plies: [...s.plies, { uci, san, grade: null }],
+      hintArrow: null,
+      pieceHint: null,
+    }))
     void gradeLastMove()
   }
 
@@ -478,6 +535,7 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
       evals: s.evals.slice(0, ply + 1),
       phase: 'user',
       resigned: false,
+      timedOut: null,
       pendingRetry: null,
       retryingPly: null,
       hintArrow: null,
@@ -552,6 +610,7 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
       ...s,
       phase: 'over',
       resigned: true,
+      clock: s.clock && stopClock(s.clock),
       pendingRetry: null,
       retryingPly: null,
       hintArrow: null,
@@ -560,12 +619,40 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
     }))
   }
 
+  /** `loser` ran out of time: they lose, unless the other side couldn't checkmate anyway (a draw). */
+  const timeUp = (loser: Side) => {
+    cancelPending()
+    stopSpeaking()
+    const s = stateRef.current
+    const draw = cannotMate(buildGame(s.plies), loser === 'white' ? 'b' : 'w')
+    const text =
+      loser === s.userColor
+        ? draw
+          ? "You ran out of time, but your opponent can't checkmate: it's a draw."
+          : 'You ran out of time. Your opponent wins.'
+        : draw
+          ? "Your opponent ran out of time, but you can't checkmate: it's a draw."
+          : 'Your opponent ran out of time. You win!'
+    update((s) => ({
+      ...s,
+      phase: 'over',
+      timedOut: text,
+      pendingRetry: null,
+      retryingPly: null,
+      hintArrow: null,
+      pieceHint: null,
+      clock: s.clock && { ...stopClock(s.clock), [loser]: 0 },
+      messages: [...s.messages, message('over', text)],
+    }))
+  }
+
   /** Open the game review, on the game as it stands now. (Outside coached games, only once it's over.) */
   const openReview = () => {
     const s = stateRef.current
     if (s.phase === 'setup' || !s.plies.some((p) => p.grade) || (s.assistance !== 'coached' && s.phase !== 'over')) return
     stopSpeaking()
-    const result = s.phase !== 'over' ? null : s.resigned ? RESIGNED : (gameOverText(buildGame(s.plies), s.userColor) ?? null)
+    const result =
+      s.phase !== 'over' ? null : s.resigned ? RESIGNED : (s.timedOut ?? gameOverText(buildGame(s.plies), s.userColor) ?? null)
     update((s) => ({ ...s, review: { plies: s.plies, evals: s.evals, userColor: s.userColor, result }, reviewOpen: true }))
   }
 
@@ -591,6 +678,28 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
   const coached = state.assistance === 'coached'
   const hints = state.hints.at === state.plies.length ? state.hints : { idea: false, piece: 0 }
   const myTurn = state.phase === 'user' && game.turn() === state.userColor[0]
+
+  // The student's clock runs while it's their move and the game is on screen; it stops while the coach offers a
+  // retry, while the review is open, and when another section is showing.
+  const clockRuns = state.clock !== null && myTurn && !state.reviewOpen && !paused
+  useEffect(() => {
+    update((s) => {
+      if (!s.clock) return s
+      if (clockRuns && s.clock.running === null) return { ...s, clock: startClock(s.clock, s.userColor) }
+      if (!clockRuns && s.clock.running !== null) return { ...s, clock: stopClock(s.clock) }
+      return s
+    })
+  }, [clockRuns])
+  // Running out of time ends the game.
+  useEffect(() => {
+    const c = state.clock
+    if (!c?.running) return
+    const timer = setTimeout(() => {
+      const now = stateRef.current.clock
+      if (now?.running && timeLeft(now, now.running) <= 0) timeUp(now.running)
+    }, timeLeft(c, c.running) + 30)
+    return () => clearTimeout(timer)
+  }, [state.clock])
   const canReview = state.phase !== 'setup' && state.plies.some((p) => p.grade) && (coached || state.phase === 'over')
   // During an unassisted game, grades and the evaluation stay hidden (they'd be help).
   const gradesHidden = state.assistance === 'unassisted' && state.phase !== 'over'

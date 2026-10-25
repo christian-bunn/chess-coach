@@ -136,8 +136,67 @@ main {
 
 .board-area {
   display: flex;
+  align-items: center;
   gap: 8px;
   flex: none;
+}
+/* A timed game: a slightly smaller board, so the clocks above and below it fit on the screen. */
+.board-area.timed {
+  --board-size: min(calc(100vh - 230px), 820px, calc(100vw - 640px));
+}
+.board-column {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.game-clock {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 12px;
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+}
+.game-clock.to-move {
+  background: var(--panel-raised);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.game-clock.low.to-move {
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+.game-clock.low .clock-time {
+  color: var(--danger);
+}
+.clock-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.clock-side {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+.clock-side.white {
+  background: #eeeed2;
+}
+.clock-side.black {
+  background: #262421;
+}
+.clock-time {
+  font-size: 1.4rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.segmented.time-controls {
+  flex-wrap: wrap;
+}
+.time-controls button {
+  flex: 1 0 22%;
+  padding: 8px 6px;
 }
 
 .board {
@@ -853,6 +912,9 @@ button.move-ref:focus-visible {
   }
   .board-area {
     align-self: center;
+  }
+  .board-area.timed {
+    --board-size: min(calc(100vw - 72px), 720px);
   }
   .side {
     height: auto;

@@ -4,6 +4,7 @@ import { api, type CoachConfig, type Eval, type Level } from './api'
 import { Board } from './components/Board'
 import { CoachPanel } from './components/CoachPanel'
 import { EvalBar } from './components/EvalBar'
+import { GameClock } from './components/GameClock'
 import { GameReview } from './components/GameReview'
 import { MoveList } from './components/MoveList'
 import { NewGame } from './components/NewGame'
@@ -27,13 +28,13 @@ type Mode = 'play' | 'puzzles' | 'saved' | 'openings'
 export default function App() {
   const [config, setConfig] = useState<CoachConfig>({ voice: false })
   const puzzles = usePuzzles()
-  const coach = useCoachGame(puzzles.refresh)
+  const [mode, setMode] = useState<Mode>('play')
+  // The game's clock only runs while it's on screen.
+  const coach = useCoachGame(puzzles.refresh, mode !== 'play')
   // A solved puzzle played on is a graded game of its own, so the game in Play isn't touched.
   const puzzleGame = useCoachGame(puzzles.refresh)
   const savedGames = useSavedGames()
   const openings = useOpenings()
-  // Playing a game, doing puzzles from your mistakes, or looking at saved games (the game waits meanwhile).
-  const [mode, setMode] = useState<Mode>('play')
   const puzzleMode = mode === 'puzzles'
   const savedMode = mode === 'saved'
   const openingsMode = mode === 'openings'
@@ -269,6 +270,10 @@ export default function App() {
         ? (review.evals[reviewPreview?.played ? reviewView.ply : reviewView.ply - 1] ?? null)
         : (review.evals.at(-1) ?? null)
   const settingUp = phase === 'setup' || showSetup
+  // The clocks, for a timed game in Play: the opponent's above the board and yours below (whichever way it faces).
+  const showClocks = mode === 'play' && !!coach.clock && phase !== 'setup' && !settingUp
+  const toMove = phase === 'over' ? null : coach.game.turn() === 'w' ? 'white' : 'black'
+  const clockLabel = (side: 'white' | 'black') => (side === userColor ? 'You' : (coach.level?.name ?? 'Opponent'))
   const opening = useMemo(() => openingOf(plies), [plies])
 
   // What the board shows: a puzzle, a move being retried from the review, a move being previewed, or the game.
@@ -413,7 +418,7 @@ export default function App() {
         </nav>
       </header>
       <main>
-        <div className="board-area">
+        <div className={`board-area ${showClocks ? 'timed' : ''}`}>
           {/* No evaluation while solving a puzzle or during an unassisted game: it would give away whether there's
               something to find. (Once a puzzle is finished, it follows the position you explore.) */}
           <EvalBar
@@ -434,7 +439,20 @@ export default function App() {
             }
             orientation={view.orientation}
           />
-          <Board {...view} animate={!instant} />
+          <div className="board-column">
+            {showClocks && coach.clock && (
+              <GameClock
+                clock={coach.clock}
+                side={view.orientation === 'white' ? 'black' : 'white'}
+                label={clockLabel(view.orientation === 'white' ? 'black' : 'white')}
+                toMove={toMove === (view.orientation === 'white' ? 'black' : 'white')}
+              />
+            )}
+            <Board {...view} animate={!instant} />
+            {showClocks && coach.clock && (
+              <GameClock clock={coach.clock} side={view.orientation} label={clockLabel(view.orientation)} toMove={toMove === view.orientation} />
+            )}
+          </div>
         </div>
         <aside className="side">
           {backendError ? (
@@ -508,10 +526,11 @@ export default function App() {
                 levels={levels}
                 initialLevel={coach.level?.id ?? 'casual'}
                 initialAssistance={coach.assistance}
-                onStart={(color, level, assistance) => {
+                initialTimeControl={coach.timeControl}
+                onStart={(color, level, assistance, timing) => {
                   setShowSetup(false)
                   setFlipped(false)
-                  actions.newGame(color, level, assistance)
+                  actions.newGame(color, level, assistance, timing)
                 }}
                 onCancel={phase === 'setup' ? undefined : () => setShowSetup(false)}
               />

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Level } from '../api'
+import { TIME_CONTROLS, UNTIMED } from '../clock'
 import type { Assistance, Side } from '../useCoachGame'
 
 const MODES: { id: Assistance; label: string; about: string }[] = [
@@ -21,16 +22,18 @@ const MODES: { id: Assistance; label: string; about: string }[] = [
 interface NewGameProps {
   levels: Level[]
   initialLevel: string
-  /** The last game's mode, so the choice carries over. */
+  /** The last game's mode and time control, so the choices carry over. */
   initialAssistance: Assistance
-  onStart: (color: Side | 'random', level: Level, assistance: Assistance) => void
+  initialTimeControl: string
+  onStart: (color: Side | 'random', level: Level, assistance: Assistance, timing: string) => void
   onCancel?: () => void
 }
 
-export function NewGame({ levels, initialLevel, initialAssistance, onStart, onCancel }: NewGameProps) {
+export function NewGame({ levels, initialLevel, initialAssistance, initialTimeControl, onStart, onCancel }: NewGameProps) {
   const [color, setColor] = useState<Side | 'random'>('white')
   const [levelId, setLevelId] = useState(initialLevel)
   const [assistance, setAssistance] = useState(initialAssistance)
+  const [timing, setTiming] = useState(initialTimeControl)
   const level = levels.find((l) => l.id === levelId) ?? levels[0]
 
   return (
@@ -69,8 +72,23 @@ export function NewGame({ levels, initialLevel, initialAssistance, onStart, onCa
         </div>
         <p className="muted">{MODES.find((m) => m.id === assistance)?.about}</p>
       </fieldset>
+      <fieldset>
+        <legend>Time</legend>
+        <div className="segmented time-controls">
+          {[{ id: UNTIMED, label: 'Untimed' }, ...TIME_CONTROLS].map((t) => (
+            <button key={t.id} className={timing === t.id ? 'active' : ''} onClick={() => setTiming(t.id)}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <p className="muted">
+          {timing === UNTIMED
+            ? 'No clock: take as long as you like.'
+            : 'Minutes each, and with "|" the seconds added after every move. Run out of time and you lose.'}
+        </p>
+      </fieldset>
       <div className="row">
-        <button className="primary" disabled={!level} onClick={() => level && onStart(color, level, assistance)}>
+        <button className="primary" disabled={!level} onClick={() => level && onStart(color, level, assistance, timing)}>
           Start game
         </button>
         {onCancel && <button onClick={onCancel}>Cancel</button>}

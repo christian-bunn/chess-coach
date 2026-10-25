@@ -95,6 +95,21 @@ In graded and unassisted games, **🏳 Resign** gives up the game. Moves are gra
 way, so when the game ends (or you resign) the grades appear, **📊 Game review** shows how it went, and your
 mistakes still become puzzles.
 
+## Clocks
+
+In **New game**, **Time** sets a clock: Untimed (the default), 1, 3, 5, 10, 15 or 30 minutes, or 3 | 2, 10 | 5
+and 15 | 10, where the second number is the seconds added after every move. The choice is remembered.
+
+- **On the board:** the opponent's clock is above the board and yours below it, with the side to move
+  highlighted; yours turns red under 20 seconds, when tenths of a second appear.
+- **Running out:** whoever runs out of time loses, unless the other side has too little left to checkmate (a
+  lone king, or king and one knight or bishop), which makes it a draw.
+- **Your clock** runs only while it's your move and the game is on screen: it stops while the coach offers a
+  retry, while the review is open, and while you're in Puzzles, Saved or Openings.
+- **The opponent's clock** is charged for its thinking time on each move (at most 1.5 seconds, since the
+  backend's reply also includes the analysis for grading), not for waiting while the coach speaks.
+- Games played on from a puzzle or an opening are untimed.
+
 ## Stepping through the game
 
 **⏮ ◀ ▶ ⏭** above the move list, the ← and → keys, or clicking a move in the list show the board as it was
@@ -303,10 +318,11 @@ frontend/src/
   usePuzzles.ts         Puzzles from your mistakes: the current one, your tries, and its schedule
   useSavedGames.ts      Saved games: the list, the one open, saving and deleting
   useOpenings.ts        Learning openings: choosing one, exploring its book moves, practising it
+  clock.ts              Time controls and the chess clock
   voice.ts              Playing the coach's voice, with notation turned into words
   moveRefs.ts           Finding the moves a coach message mentions, so they can be shown on the board
-  components/           Board, EvalBar, CoachPanel, GameReview, PuzzlePanel, SavedGames, OpeningsPanel,
-                        MoveList, NewGame
+  components/           Board, EvalBar, GameClock, CoachPanel, GameReview, PuzzlePanel, SavedGames,
+                        OpeningsPanel, MoveList, NewGame
 ```
 
 The API is stateless. The client sends the whole move list (UCI, starting from the initial position) with every
