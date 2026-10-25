@@ -1,6 +1,6 @@
 import { useMemo, type MouseEvent, type ReactNode } from 'react'
 import { GRADE_META } from '../grades'
-import { REVIEW_GRADES, accuracy, countGrades, hadBetter, keyMoments, openingOf, sideGrades, winningChances } from '../review'
+import { REVIEW_GRADES, accuracy, countGrades, hadBetter, keyMoments, openingOf, sideGrades, winningChances, withoutAnswer } from '../review'
 import { moveLabel, type ReviewSnapshot } from '../useCoachGame'
 import type { Practice } from '../useReviewPractice'
 
@@ -188,10 +188,7 @@ function PracticeBox({
     right: `${attempt && attempt.classification !== 'good' ? 'Yes! ' : ''}${attempt?.message ?? ''}`,
     // The comment already starts with the grade ("Mistake. ..."). An inaccuracy's comment ends by naming
     // the better move, which would give the answer away while practising.
-    wrong: (attempt?.message ?? (attempt ? GRADE_META[attempt.classification].label : '')).replace(
-      ` ${attempt?.best_san} was better.`,
-      '',
-    ),
+    wrong: withoutAnswer(attempt?.message ?? (attempt ? GRADE_META[attempt.classification].label : '')),
     shown: `The best move was ${bestSan}. It's drawn on the board.`,
     error: "I couldn't reach the engine.",
   }[status]

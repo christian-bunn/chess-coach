@@ -1,5 +1,6 @@
 import type { Classification, MoveGrade, Puzzle, PuzzleSummary } from '../api'
 import { GRADE_META } from '../grades'
+import { withoutAnswer } from '../review'
 import { fromNow } from '../time'
 import { moveLabel, type Ply } from '../useCoachGame'
 import type { PuzzleStatus } from '../usePuzzles'
@@ -122,7 +123,7 @@ function PuzzleCard({
   const index = puzzle.moves.length
   const meta = GRADE_META[puzzle.grade]
   // An inaccuracy's comment ends by naming the better move, which would give the answer away.
-  const attemptText = attempt?.message?.replace(` ${attempt.best_san} was better.`, '') ?? ''
+  const attemptText = withoutAnswer(attempt?.message ?? '')
   const schedule = scheduled
     ? scheduled.streak > 0
       ? `Next review ${fromNow(scheduled.due)}.`

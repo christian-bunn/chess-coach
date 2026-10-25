@@ -445,7 +445,8 @@ export function useCoachGame(onPuzzleSaved?: () => void) {
     const grade = stateRef.current.pendingRetry
     if (stateRef.current.phase !== 'decision' || !grade) return
     cancelPending()
-    const text = reveal ? `The best move was ${grade.best_san}. Go ahead and play it.` : retryHint(grade)
+    // Numbered, so the move can be pointed at to see it on the board.
+    const text = reveal ? `The best move was ${moveLabel(grade.ply - 1, grade.best_san ?? '')}. Go ahead and play it.` : retryHint(grade)
     const note = message('info', text, undefined, { speak: true, context: stateRef.current.plies.map((p) => p.uci) })
     update((s) => ({
       ...s,

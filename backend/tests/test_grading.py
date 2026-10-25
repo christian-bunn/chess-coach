@@ -158,3 +158,15 @@ class TestGradeMove:
         g = grade(board, "dxc6", before, Cp(0), reply="O-O")
         assert g.classification == "best"
         assert "wins" not in describe_user_move(g, board)
+
+
+def test_better_moves_come_with_their_number():
+    # Numbered ("3.Bb5"), the page can show the move on the board when it's pointed at.
+    board = board_after("e4", "e5", "Nf3", "Nc6")
+    before = fake_analysis(board, ("Bb5", Cp(40)))
+    inaccuracy = grade(board, "d3", before, Cp(40), "d5")
+    assert inaccuracy.classification == "inaccuracy"
+    assert describe_user_move(inaccuracy, board).endswith(" 3.Bb5 was better.")
+    good = grade(board, "d3", before, Cp(-8), "d5")
+    assert good.classification == "good"
+    assert describe_user_move(good, board) == "Good move. 3.Bb5 was a little stronger."

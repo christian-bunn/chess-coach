@@ -75,6 +75,11 @@ def _reason_text(grade: MoveGrade, board: chess.Board) -> str | None:
     return reason.coach_text() if reason is not None else None
 
 
+def _best(grade: MoveGrade, board: chess.Board) -> str:
+    """The engine's move with its number ("3.d4"), so the page can show it on the board when pointed at."""
+    return numbered_san(board, chess.Move.from_uci(grade.best_move)) if grade.best_move else (grade.best_san or "")
+
+
 def describe_user_move(grade: MoveGrade, board: chess.Board) -> str:
     """Comment on the user's move. `board` is the position before it was played."""
     c = grade.classification
@@ -95,14 +100,14 @@ def describe_user_move(grade: MoveGrade, board: chess.Board) -> str:
         if grade.missed_mate_in:
             return (
                 f"Excellent, you're still winning. There was also a forced mate in "
-                f"{grade.missed_mate_in} starting with {grade.best_san}."
+                f"{grade.missed_mate_in} starting with {_best(grade, board)}."
             )
         return "Excellent move."
     if c == "good":
-        return f"Good move. {grade.best_san} was a little stronger."
+        return f"Good move. {_best(grade, board)} was a little stronger."
     if c == "inaccuracy":
         why = _reason_text(grade, board) or _why_bad(grade, board)
-        return " ".join(filter(None, ["Inaccuracy.", why, f"{grade.best_san} was better."]))
+        return " ".join(filter(None, ["Inaccuracy.", why, f"{_best(grade, board)} was better."]))
     if c == "miss":
         if grade.missed_mate_in == 1:
             return "You missed checkmate in one!"

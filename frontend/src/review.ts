@@ -50,6 +50,12 @@ export function keyMoments(review: ReviewSnapshot): MoveGrade[] {
   return sideGrades(review, true).filter((g) => KEY_GRADES.has(g.classification) || g.missed_mate_in !== null)
 }
 
+/** A comment without the sentence naming the better move ("3.d4 was better."), which would give the answer away
+ * while retrying. */
+export function withoutAnswer(message: string): string {
+  return message.replace(/ \S+ was better\.$/, '')
+}
+
 /** Whether the engine had a clearly better move than `grade`'s. */
 export function hadBetter(grade: MoveGrade): boolean {
   return !GOOD_GRADES.has(grade.classification) && grade.classification !== 'forced' && !!grade.best_move && grade.best_move !== grade.uci
