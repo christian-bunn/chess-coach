@@ -154,8 +154,8 @@ opens it at any point during the game too.
   **⏮ ◀ ▶ ⏭** under it, or use ← and →, to see the position after any move, with the move's badge on the piece
   and the eval bar for that position.
 - **Key moments:** your great moves, mistakes, missed wins, blunders and missed mates, with the coach's
-  comment on each. Click one to see it on the board. **Show best move** draws the engine's move in green
-  next to yours in blue.
+  comment on each. Click one to see it on the board. Point at a move in a comment (like 12...Bxh2+) to see
+  it on the board too. **Show best move** draws the engine's move in green next to yours in blue.
 - **↻ Retry:** puts the board back to the position before a mistake, so you can look for something better.
   Your try gets graded like any move ("Yes! Best move", or "Mistake" with the reason), and you can try
   again or ask for the best move. This doesn't change the game itself: **← Back to the game** returns to it
@@ -322,7 +322,7 @@ frontend/src/
   voice.ts              Playing the coach's voice, with notation turned into words
   moveRefs.ts           Finding the moves a coach message mentions, so they can be shown on the board
   components/           Board, EvalBar, GameClock, CoachPanel, GameReview, PuzzlePanel, SavedGames,
-                        OpeningsPanel, MoveList, NewGame
+                        OpeningsPanel, MoveList, MoveRefText, NewGame
 ```
 
 The API is stateless. The client sends the whole move list (UCI, starting from the initial position) with every

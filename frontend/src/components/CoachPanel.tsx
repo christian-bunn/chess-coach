@@ -1,7 +1,8 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { GRADE_META } from '../grades'
-import { findMoveRefs, type MoveRef } from '../moveRefs'
+import type { MoveRef } from '../moveRefs'
 import { moveLabel, type CoachMessage, type Phase } from '../useCoachGame'
+import { MoveRefText } from './MoveRefText'
 
 interface CoachPanelProps {
   messages: CoachMessage[]
@@ -140,41 +141,13 @@ export function CoachPanel({
   )
 }
 
-/** Message text with the moves it mentions as links: pointing at one shows it on the board. */
-function MessageText({ text, context, onPreview }: { text: string; context?: string[]; onPreview: CoachPanelProps['onPreview'] }) {
-  const segments = useMemo(() => (context ? findMoveRefs(text, context) : [text]), [text, context])
-  return (
-    <>
-      {segments.map((segment, i) =>
-        typeof segment === 'string' ? (
-          segment
-        ) : (
-          <button
-            key={i}
-            type="button"
-            className="move-ref"
-            title={segment.label}
-            onMouseEnter={() => onPreview(segment)}
-            onMouseLeave={() => onPreview(null)}
-            onFocus={() => onPreview(segment)}
-            onBlur={() => onPreview(null)}
-            onClick={() => onPreview(segment)}
-          >
-            {segment.text}
-          </button>
-        ),
-      )}
-    </>
-  )
-}
-
 /** `latest`: the newest coach message, highlighted so it's easy to find again. */
 function Message({ message, latest, onPreview }: { message: CoachMessage; latest: boolean; onPreview: CoachPanelProps['onPreview'] }) {
   const grade = message.grade
   const body = (
     <p>
       {message.prefix}
-      <MessageText text={message.text} context={message.context} onPreview={onPreview} />
+      <MoveRefText text={message.text} context={message.context} onPreview={onPreview} />
       {message.loading && <span className="typing" aria-label="Coach is thinking" />}
     </p>
   )

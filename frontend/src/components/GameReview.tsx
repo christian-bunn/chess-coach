@@ -1,8 +1,10 @@
 import { useMemo, type MouseEvent, type ReactNode } from 'react'
 import { GRADE_META } from '../grades'
+import type { MoveRef } from '../moveRefs'
 import { REVIEW_GRADES, accuracy, countGrades, hadBetter, keyMoments, openingOf, sideGrades, winningChances, withoutAnswer } from '../review'
 import { moveLabel, type ReviewSnapshot } from '../useCoachGame'
 import type { Practice } from '../useReviewPractice'
+import { MoveRefText } from './MoveRefText'
 
 interface GameReviewProps {
   review: ReviewSnapshot
@@ -15,6 +17,8 @@ interface GameReviewProps {
   onTryAgain: () => void
   onShowBest: () => void
   onStopPractice: () => void
+  /** Show a move mentioned in a comment on the board (null: back to what it showed). */
+  onPreview: (move: MoveRef | null) => void
   onClose: () => void
   /** The close button's text ("← Back to the game", "← Saved games"). */
   closeLabel?: string
@@ -33,6 +37,7 @@ export function GameReview({
   onTryAgain,
   onShowBest,
   onStopPractice,
+  onPreview,
   onClose,
   closeLabel = '← Back to the game',
   subtitle,
@@ -47,7 +52,8 @@ export function GameReview({
     return {
       you: { accuracy: accuracy(mine), counts: countGrades(mine) },
       opponent: { accuracy: accuracy(theirs), counts: countGrades(theirs) },
-      moments: keyMoments(review),
+      // Each with the game up to and including the move, which its comment's moves are read against.
+      moments: keyMoments(review).map((grade) => ({ grade, context: review.plies.slice(0, grade.ply).map((p) => p.uci) })),
     }
   }, [review])
   const opening = useMemo(() => openingOf(review.plies), [review])
@@ -122,7 +128,7 @@ export function GameReview({
           <p className="muted">No mistakes worth going back to. Well played!</p>
         ) : (
           <ol className="moments">
-            {summary.moments.map((g) => {
+            {summary.moments.map(({ grade: g, context }) => {
               const meta = GRADE_META[g.classification]
               const better = hadBetter(g)
               const practising = practice?.ply === g.ply
@@ -135,11 +141,17 @@ export function GameReview({
                     <strong>{moveLabel(g.ply - 1, g.san)}</strong>
                     <span style={{ color: meta.color }}>{meta.label}</span>
                   </button>
-                  {g.message && <p>{g.message}</p>}
+                  {g.message && (
+                    <p>
+                      <MoveRefText text={g.message} context={context} onPreview={onPreview} />
+                    </p>
+                  )}
                   {practising ? (
                     <PracticeBox
                       practice={practice}
                       bestSan={g.best_san}
+                      context={context}
+                      onPreview={onPreview}
                       onTryAgain={onTryAgain}
                       onShowBest={onShowBest}
                       onStop={onStopPractice}
@@ -171,17 +183,24 @@ function formatAccuracy(value: number | null): string {
 function PracticeBox({
   practice,
   bestSan,
+  context,
+  onPreview,
   onTryAgain,
   onShowBest,
   onStop,
 }: {
   practice: Practice
   bestSan: string | null
+  /** The game up to and including the move being retried. */
+  context: string[]
+  onPreview: (move: MoveRef | null) => void
   onTryAgain: () => void
   onShowBest: () => void
   onStop: () => void
 }) {
   const { status, attempt } = practice
+  // The comment on a try is about the game with that move played instead.
+  const tried = useMemo(() => (attempt ? [...context.slice(0, -1), attempt.uci] : undefined), [context, attempt])
   const text = {
     thinking: 'Your move: find something better on the board.',
     grading: 'Checking your move…',
@@ -194,7 +213,9 @@ function PracticeBox({
   }[status]
   return (
     <div className={`practice ${status}`}>
-      <p>{text}</p>
+      <p>
+        <MoveRefText text={text} context={tried} onPreview={onPreview} />
+      </p>
       <div className="moment-actions">
         {(status === 'wrong' || status === 'shown' || status === 'error') && (
           <button className="primary" onClick={onTryAgain}>

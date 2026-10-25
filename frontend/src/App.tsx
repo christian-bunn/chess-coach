@@ -43,7 +43,7 @@ export default function App() {
   const [backendError, setBackendError] = useState<string | null>(null)
   const [showSetup, setShowSetup] = useState(false)
   const [flipped, setFlipped] = useState(false)
-  // A move from a coach message being shown on the board instead of the game.
+  // A move from a coach message or a review comment being shown on the board instead of the game.
   const [preview, setPreview] = useState<BoardPreview | null>(null)
   // Previews (and going back from one) snap instantly; real moves animate again.
   const [instant, setInstant] = useState(false)
@@ -75,6 +75,7 @@ export default function App() {
     actions.openReview()
   }
   const closeReview = () => {
+    setPreview(null)
     setReviewView(null)
     practice.stop()
     setInstant(true)
@@ -109,6 +110,7 @@ export default function App() {
   }
   const [confirmDelete, setConfirmDelete] = useState(false)
   const openSaved = (id: string) => {
+    setPreview(null)
     setReviewView(null)
     practice.stop()
     setConfirmDelete(false)
@@ -140,6 +142,7 @@ export default function App() {
   }
 
   const closeSaved = () => {
+    setPreview(null)
     setReviewView(null)
     practice.stop()
     setInstant(true)
@@ -185,7 +188,7 @@ export default function App() {
     }
   }, [viewing, plies, coach.gradesHidden, canPlayHere, yourTurnThere])
 
-  const shown = review ? (practiceBoard ? null : reviewPreview) : (preview ?? browse)
+  const shown = preview ?? (review ? (practiceBoard ? null : reviewPreview) : browse)
   const shownGame = useMemo(() => (shown ? new Chess(shown.fen) : null), [shown])
   useEffect(() => {
     api.levels().then(setLevels, (e: Error) => setBackendError(e.message))
@@ -322,7 +325,7 @@ export default function App() {
         : [],
       onMove: (uci) => void puzzles.play(uci),
     }
-  } else if (practiceBoard) {
+  } else if (practiceBoard && !preview) {
     view = {
       game: practiceBoard.game,
       orientation,
@@ -503,6 +506,7 @@ export default function App() {
                 onTryAgain={practice.tryAgain}
                 onShowBest={practice.showBest}
                 onStopPractice={practice.stop}
+                onPreview={showPreview}
                 onClose={closeSaved}
                 closeLabel="← Saved games"
                 subtitle={`${matchup(savedGames.open.summary)} · ${savedOn(savedGames.open.summary.saved)}`}
@@ -551,6 +555,7 @@ export default function App() {
               onTryAgain={practice.tryAgain}
               onShowBest={practice.showBest}
               onStopPractice={practice.stop}
+              onPreview={showPreview}
               onClose={closeReview}
               actions={
                 <button
