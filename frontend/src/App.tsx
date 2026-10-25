@@ -25,7 +25,8 @@ const BEST_ARROW = 'rgba(129, 182, 76, 0.9)'
 
 type Mode = 'play' | 'puzzles' | 'saved' | 'openings'
 
-export default function App() {
+/** `player`: whose progress this is (see player.ts); `onSwitchPlayer` asks for another name. */
+export default function App({ player, onSwitchPlayer }: { player: string; onSwitchPlayer: () => void }) {
   const [config, setConfig] = useState<CoachConfig>({ voice: false })
   const puzzles = usePuzzles()
   const [mode, setMode] = useState<Mode>('play')
@@ -417,6 +418,9 @@ export default function App() {
           <button className={openingsMode ? 'active' : ''} onClick={() => switchMode('openings')} aria-pressed={openingsMode}>
             📚 Openings
             {!!openings.repertoire?.due && <span className="count">{openings.repertoire.due}</span>}
+          </button>
+          <button className="player-button" onClick={onSwitchPlayer} title="Switch player">
+            👤 {player}
           </button>
         </nav>
       </header>

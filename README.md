@@ -191,8 +191,8 @@ takes you back.
   starts that puzzle's schedule over.
 - **Doing one early:** any puzzle in the list can be done before it's due; it counts toward its schedule the
   same way. **Remove this puzzle** deletes one.
-- **Where they're kept:** `progress/puzzles.json` in the project folder (git-ignored), so they last across
-  games and browsers. Set `COACH_PROGRESS_DIR` to keep them somewhere else.
+- **Where they're kept:** `progress/players/<your name>/puzzles.json` in the project folder (git-ignored), so
+  they last across games and browsers. Set `COACH_PROGRESS_DIR` to keep them somewhere else.
 
 ## Learn openings
 
@@ -219,7 +219,7 @@ takes you back.
   back later than last time (a day, then 3 days, a week, two weeks, …), and any mistake (asking to be shown a
   move counts as one) brings it back the next day. Practising one that isn't due doesn't change its schedule.
   Because the computer varies its replies, the reviews cover the different variations over time. Kept in
-  `progress/repertoire.json` (git-ignored).
+  `progress/players/<your name>/repertoire.json` (git-ignored).
 - **Playing it out:** **♟ Play from here** (on any position you're exploring) and **♟ Play on from here** (at
   the end of a practice run) start a game against the computer from that position, in Play, at your last
   game's level and in your usual mode, so you practise the middlegame the opening leads to. If a game is in
@@ -230,8 +230,8 @@ takes you back.
 **💾 Save game** at the top of the game review keeps the game, review and all, in **📁 Saved** (top right,
 next to Play and Puzzles). The list shows who each game was against, when, how it ended, the opening and both
 accuracies. **Open review** brings the whole review back (graph, key moments, Retry, stepping through the
-moves), and **Delete** removes a game after asking. Saved games are kept in `progress/games.json`
-(git-ignored), next to the puzzles.
+moves), and **Delete** removes a game after asking. Saved games are kept in
+`progress/players/<your name>/games.json` (git-ignored), next to the puzzles.
 
 ## Run
 
@@ -240,6 +240,26 @@ moves), and **Delete** removes a game after asking. Saved games are kept in `pro
 ```
 
 Then open http://localhost:5173. The backend listens on http://127.0.0.1:8000, and Vite forwards `/api` to it.
+
+## Playing with a friend
+
+```bash
+./share.sh
+```
+
+This builds the page, starts the backend if it isn't running (it serves the built page too, so everything
+is on port 8000), and opens a free [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/do-more-with-tunnels/trycloudflare/)
+to it. No account is needed. It prints a link like `https://some-random-words.trycloudflare.com` to send
+your friend.
+
+- **While it runs:** the link works while `share.sh` and your computer are on. Ctrl+C stops sharing. The
+  link changes every time you start it, so send the new one.
+- **Who's playing:** the first time anyone opens the coach, it asks for their name. Each name has its own
+  puzzles, saved games and repertoire, in `progress/players/<name>/`. **👤 Your name** at the top right
+  switches player. Names aren't passwords: typing someone's name opens their progress.
+- **Needs** `cloudflared` on your PATH or in `~/.local/bin` (from
+  [Cloudflare's releases](https://github.com/cloudflare/cloudflared/releases)). Your engine does the work for
+  both of you, which is fine for a couple of players.
 
 ## Tests
 
@@ -314,6 +334,7 @@ backend/app/
   puzzles.py   Puzzles from your mistakes, with spaced repetition
   games.py     Games saved from the review
   repertoire.py  Your opening repertoire, with spaced repetition
+  players.py   Each player's progress, kept apart by name
   levels.py    Opponent strength presets
   config.py    Settings from env vars (COACH_ANALYSIS_DEPTH, COACH_ENGINE_THREADS, ...)
 backend/data/openings/  Lichess's openings list (a.tsv ... e.tsv: ECO code, name, moves)
@@ -327,8 +348,10 @@ frontend/src/
   clock.ts              Time controls and the chess clock
   voice.ts              Playing the coach's voice, with notation turned into words
   moveRefs.ts           Finding the moves a coach message mentions, so they can be shown on the board
+  player.ts             Who's playing (their name picks their progress on the server)
   components/           Board, EvalBar, GameClock, CoachPanel, GameReview, PuzzlePanel, SavedGames,
-                        OpeningsPanel, MoveList, MoveRefText, NewGame
+                        OpeningsPanel, MoveList, MoveRefText, NewGame, WhoIsPlaying
+share.sh                Share the coach with a friend through a Cloudflare quick tunnel
 ```
 
 The API is stateless. The client sends the whole move list (UCI, starting from the initial position) with every

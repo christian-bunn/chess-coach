@@ -8,9 +8,7 @@ from app.config import find_stockfish
 from app.grading import grade_move
 from app.levels import LEVELS
 from app.main import app
-from app.games import GameStore
-from app.puzzles import PuzzleStore
-from app.repertoire import RepertoireStore
+from app.players import Players, player_id
 
 try:
     find_stockfish()
@@ -22,7 +20,7 @@ SCHOLARS_SETUP = ["e2e4", "e7e5", "d1h5", "b8c6", "f1c4", "g8f6"]  # Black's las
 
 @pytest.fixture(scope="module")
 def client():
-    with TestClient(app) as c:
+    with TestClient(app, headers={"X-Player": "Tester"}) as c:
         yield c
 
 
@@ -170,7 +168,7 @@ def test_speech_returns_audio(client):
 
 
 def test_puzzles_from_mistakes(client, tmp_path):
-    client.app.state.puzzles = PuzzleStore(tmp_path / "puzzles.json")
+    client.app.state.players = Players(tmp_path)
     # A good move isn't saved; hanging the queen is.
     assert client.post("/api/puzzles", json={"moves": ["e2e4"]}).json() == {"saved": False, "id": None}
     saved = client.post("/api/puzzles", json={"moves": ["e2e4", "d7d5", "d1g4"]}).json()
@@ -200,7 +198,7 @@ def test_puzzles_from_mistakes(client, tmp_path):
 
 
 def test_saved_games(client, tmp_path):
-    client.app.state.games = GameStore(tmp_path / "games.json")
+    client.app.state.players = Players(tmp_path)
     plies = [{"uci": "e2e4", "san": "e4", "grade": {"classification": "book"}}, {"uci": "e7e5", "san": "e5", "grade": None}]
     body = {"snapshot": {"plies": plies, "evals": [None] * 3, "userColor": "white", "result": None}, "color": "white",
             "opponent": "Casual (~1400)", "opening": "King's Pawn Game"}
@@ -237,7 +235,7 @@ def test_openings(client):
 
 
 def test_repertoire(client, tmp_path):
-    client.app.state.repertoire = RepertoireStore(tmp_path / "repertoire.json")
+    client.app.state.players = Players(tmp_path)
     body = {"name": "Italian Game", "eco": "C50", "moves": ["e2e4", "e7e5", "g1f3", "b8c6", "f1c4"], "side": "white"}
     entry = client.post("/api/repertoire", json=body).json()
     listed = client.get("/api/repertoire").json()
@@ -248,3 +246,26 @@ def test_repertoire(client, tmp_path):
     assert client.post("/api/repertoire", json={**body, "moves": ["e2e5"]}).status_code == 400
     assert client.delete(f"/api/repertoire/{entry['id']}").json() == {"removed": True}
     assert client.post(f"/api/repertoire/{entry['id']}/review", json={"mistakes": 0}).status_code == 404
+
+
+def test_each_player_has_their_own_progress(client, tmp_path):
+    client.app.state.players = Players(tmp_path)
+    saved = client.post("/api/puzzles", json={"moves": ["e2e4", "d7d5", "d1g4"]}).json()
+    assert saved["saved"]
+    assert (tmp_path / "players" / "tester" / "puzzles.json").is_file()
+    friend = {"X-Player": "Sam"}
+    assert client.get("/api/puzzles", headers=friend).json()["total"] == 0
+    assert client.get(f"/api/puzzles/{saved['id']}", headers=friend).status_code == 404
+    assert client.get("/api/puzzles", headers={"X-Player": "  TESTER "}).json()["total"] == 1  # same name
+    # Without a name, there's no progress to use.
+    assert client.get("/api/puzzles", headers={"X-Player": ""}).status_code == 400
+    assert client.get("/api/games", headers={"X-Player": "?!"}).status_code == 400
+
+
+def test_player_ids():
+    assert player_id("Christian Bunn") == "christian-bunn"
+    assert player_id("  Sam ") == "sam"
+    assert player_id("Jos%C3%A9") == "josé"  # the page sends names URL-encoded
+    assert player_id("../../etc") == "etc"
+    assert player_id("x" * 50) == "x" * 32
+    assert player_id("") is None and player_id("!!") is None

@@ -17,11 +17,12 @@ import chess
 import chess.engine
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .advice import HINT_LEVELS, hint
 from .coach import describe_opponent_move, describe_user_move
-from .config import Settings
+from .config import PROJECT_ROOT, Settings
 from .engine import EngineService
 from .guide import plan
 from .grading import RETRY_CLASSIFICATIONS, Eval, MoveGrade, grade_move, san_line
@@ -29,6 +30,7 @@ from .levels import DEFAULT_LEVEL, LEVELS, LEVELS_BY_ID
 from .openings import BookLine, continuations, featured, name_of, opening, practice_moves, search
 from .openings import load as load_openings, mark_book
 from .games import GameStore
+from .players import Players, Progress, player_id
 from .puzzles import Puzzle, PuzzleStore
 from .repertoire import Entry, RepertoireStore
 from .speech import MAX_TEXT, Speech
@@ -44,9 +46,7 @@ async def lifespan(app: FastAPI):
     await engines.start()
     app.state.engines = engines
     await asyncio.to_thread(load_openings)
-    app.state.puzzles = PuzzleStore(settings.progress_dir / "puzzles.json")
-    app.state.games = GameStore(settings.progress_dir / "games.json")
-    app.state.repertoire = RepertoireStore(settings.progress_dir / "repertoire.json")
+    app.state.players = Players(settings.progress_dir)
     speech = Speech(settings.voices_dir)
     speech.start()
     app.state.speech = speech
@@ -276,8 +276,17 @@ async def hint_endpoint(body: HintIn, request: Request) -> HintOut:
 # ------------------------------------------------------------------------------------- puzzles
 
 
+def _progress(request: Request) -> Progress:
+    """The progress of whoever is playing: the page sends their name in the X-Player header."""
+    pid = player_id(request.headers.get("x-player", ""))
+    if pid is None:
+        raise HTTPException(400, "Choose who's playing first")
+    players: Players = request.app.state.players
+    return players.progress(pid)
+
+
 def _puzzles(request: Request) -> PuzzleStore:
-    return request.app.state.puzzles
+    return _progress(request).puzzles
 
 
 def _puzzle(request: Request, pid: str) -> Puzzle:
@@ -369,7 +378,7 @@ async def remove_puzzle(pid: str, request: Request) -> dict:
 
 
 def _games(request: Request) -> GameStore:
-    return request.app.state.games
+    return _progress(request).games
 
 
 @app.get("/api/games")
@@ -466,7 +475,7 @@ async def practice_opening(body: PracticeIn) -> dict:
 
 
 def _repertoire(request: Request) -> RepertoireStore:
-    return request.app.state.repertoire
+    return _progress(request).repertoire
 
 
 @app.get("/api/repertoire")
@@ -498,3 +507,12 @@ async def remove_from_repertoire(eid: str, request: Request) -> dict:
     if not _repertoire(request).remove(eid):
         raise HTTPException(404, "Not in the repertoire")
     return {"removed": True}
+
+
+# ------------------------------------------------------------------------------------------ page
+
+# The built page (npm run build in frontend/), so the whole app is one server that can be shared (see README,
+# "Playing with a friend"). Mounted last, so the API's routes come first.
+PAGE = PROJECT_ROOT / "frontend" / "dist"
+if PAGE.is_dir():
+    app.mount("/", StaticFiles(directory=PAGE, html=True), name="page")

@@ -1,5 +1,7 @@
 // Types mirror backend/app/grading.py and backend/app/main.py.
 
+import { currentPlayer } from './player'
+
 export type Classification =
   | 'forced'
   /** Opening theory (from Lichess's openings list) that the engine also likes. */
@@ -61,9 +63,14 @@ export interface Analysis {
 }
 
 async function request<T>(path: string, body?: unknown, signal?: AbortSignal, method?: string): Promise<T> {
+  // The player's name picks their progress on the server; encoded, since headers can't carry every letter.
+  const player = currentPlayer()
   const response = await fetch(`/api${path}`, {
     method: method ?? (body === undefined ? 'GET' : 'POST'),
-    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    headers: {
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      ...(player ? { 'X-Player': encodeURIComponent(player) } : {}),
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal,
   })
