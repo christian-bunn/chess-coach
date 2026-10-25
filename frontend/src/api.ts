@@ -146,6 +146,42 @@ export interface SavedGameSummary {
 
 export type SaveGameRequest = Omit<SavedGameSummary, 'id' | 'saved' | 'moves'> & { snapshot: unknown }
 
+/** A named line from Lichess's openings list. */
+export interface OpeningLine {
+  name: string
+  eco: string
+  /** From the start, UCI. */
+  moves: string[]
+  /** "1. e4 c5" */
+  pgn: string
+}
+
+/** A book move from a position, with the named line it's part of and how many lines go through it. */
+export interface BookMove {
+  uci: string
+  san: string
+  name: string
+  eco: string
+  lines: number
+  /** Whether the position it reaches is itself a named one. */
+  named: boolean
+}
+
+export interface OpeningPosition {
+  /** The opening reached so far (the last named position along the moves). */
+  opening: { name: string; eco: string } | null
+  /** Whether this position is itself a named one. */
+  named: boolean
+  moves: BookMove[]
+}
+
+export interface PracticeStep {
+  /** False once the moves have left the opening's lines. */
+  on_line: boolean
+  /** The book moves that carry on within the opening, most lines first; none means the line is complete. */
+  moves: { uci: string; san: string; lines: number }[]
+}
+
 export const api = {
   config: () => request<CoachConfig>('/config'),
   levels: () => request<Level[]>('/levels'),
@@ -154,6 +190,14 @@ export const api = {
   grade: (moves: string[], signal?: AbortSignal) => request<MoveGrade>('/grade', { moves }, signal),
   botMove: (moves: string[], level: string, signal?: AbortSignal) =>
     request<MoveGrade>('/bot-move', { moves, level }, signal),
+  openings: {
+    featured: () => request<{ group: string; side: 'white' | 'black'; lines: OpeningLine[] }[]>('/openings/featured'),
+    search: (q: string, signal?: AbortSignal) =>
+      request<OpeningLine[]>(`/openings/search?q=${encodeURIComponent(q)}`, undefined, signal),
+    explore: (moves: string[], signal?: AbortSignal) => request<OpeningPosition>('/openings/explore', { moves }, signal),
+    practice: (target: string[], moves: string[], signal?: AbortSignal) =>
+      request<PracticeStep>('/openings/practice', { target, moves }, signal),
+  },
   games: {
     list: () => request<SavedGameSummary[]>('/games'),
     /** A saved game in full: its summary plus the review snapshot the page saved. */

@@ -4,7 +4,7 @@ import chess
 import chess.engine
 
 from app.grading import grade_move
-from app.openings import book_move, in_book, mark_book, opening
+from app.openings import book_move, continuations, featured, in_book, mark_book, opening, practice_moves, search, shortest_line
 from tests.test_grading import board_after, fake_analysis
 
 Cp, Mate = chess.engine.Cp, chess.engine.Mate
@@ -57,3 +57,30 @@ def test_a_blunder_in_the_list_is_still_a_blunder():
     g = mark_book(grade_move(board, move, fake_analysis(board, ("Nc3", Cp(-50))), fake_analysis(after, ("Qh4#", Mate(1)))), board, move)
     assert book_move(board, move)
     assert g.classification == "blunder" and g.opening == "Barnes Opening"
+
+
+def test_book_moves_from_a_position_most_lines_first():
+    moves = [(c.move, c.leads_to.name) for c in continuations(board_after("e4", "e5", "Nf3"))]
+    board = board_after("e4", "e5", "Nf3")
+    assert board.san(moves[0][0]) == "Nc6"
+    assert (board.parse_san("Nf6"), "Petrov's Defense") in moves
+    assert continuations(board_after("e4", "e5", "Nf3", "Nc6", "Bc4", "Nf6", "a3", "a6")) == []
+
+
+def test_search_and_featured():
+    assert search("najdorf")[0].opening.name == "Sicilian Defense: Najdorf Variation"
+    assert search("C50")[0].opening.eco == "C50"
+    assert search("  ") == []
+    groups = {group: (side, [line.opening.name for line in lines]) for group, side, lines in featured()}
+    assert groups["For White"][0] == "white" and "Italian Game" in groups["For White"][1]
+    assert groups["Against 1.e4"][1][0] == "Sicilian Defense"
+
+
+def test_practising_an_opening():
+    italian = shortest_line("Italian Game").moves  # 1. e4 e5 2. Nf3 Nc6 3. Bc4
+    assert practice_moves(italian, ()) == [("e2e4", 1)]  # on the way there: its own next move
+    assert practice_moves(italian, ("e2e4", "e7e5")) == [("g1f3", 1)]
+    after = practice_moves(italian, italian)  # then every move that continues one of its lines
+    assert after[0][0] == "f8c5" and ("g8f6", after[1][1]) in after
+    assert practice_moves(italian, ("e2e4", "c7c5")) is None  # off the line
+    assert practice_moves(italian, (*italian, "a7a6")) is None

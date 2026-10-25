@@ -7,11 +7,13 @@ import { EvalBar } from './components/EvalBar'
 import { GameReview } from './components/GameReview'
 import { MoveList } from './components/MoveList'
 import { NewGame } from './components/NewGame'
+import { OpeningsPanel } from './components/OpeningsPanel'
 import { PuzzlePanel } from './components/PuzzlePanel'
 import { SavedGames, matchup, savedOn } from './components/SavedGames'
 import type { BoardPreview } from './moveRefs'
 import { openingOf, previewMove } from './review'
 import { buildGame, moveLabel, useCoachGame, type CoachMode, type RetryMode, type ReviewSnapshot } from './useCoachGame'
+import { useOpenings } from './useOpenings'
 import { usePuzzles } from './usePuzzles'
 import { useSavedGames } from './useSavedGames'
 import { useReviewPractice } from './useReviewPractice'
@@ -20,7 +22,7 @@ import { canSpeak, setServerVoice, stopSpeaking } from './voice'
 const MOVE_ARROW = 'rgba(74, 159, 216, 0.9)'
 const BEST_ARROW = 'rgba(129, 182, 76, 0.9)'
 
-type Mode = 'play' | 'puzzles' | 'saved'
+type Mode = 'play' | 'puzzles' | 'saved' | 'openings'
 
 export default function App() {
   const [config, setConfig] = useState<CoachConfig>({ voice: false })
@@ -29,10 +31,12 @@ export default function App() {
   // A solved puzzle played on is a graded game of its own, so the game in Play isn't touched.
   const puzzleGame = useCoachGame(puzzles.refresh)
   const savedGames = useSavedGames()
+  const openings = useOpenings()
   // Playing a game, doing puzzles from your mistakes, or looking at saved games (the game waits meanwhile).
   const [mode, setMode] = useState<Mode>('play')
   const puzzleMode = mode === 'puzzles'
   const savedMode = mode === 'saved'
+  const openingsMode = mode === 'openings'
   const { phase, plies, userColor, actions } = coach
   const [levels, setLevels] = useState<Level[]>([])
   const [backendError, setBackendError] = useState<string | null>(null)
@@ -201,6 +205,10 @@ export default function App() {
       const target = e.target as HTMLElement
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return
       if ((e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') || puzzleMode || (savedMode && !review)) return
+      if (openingsMode) {
+        if (openings.line && !openings.practice) openings.step(openings.at + (e.key === 'ArrowLeft' ? -1 : 1))
+        return
+      }
       if (review) {
         if (practice.practice) return
         const step = e.key === 'ArrowLeft' ? -1 : 1
@@ -242,7 +250,22 @@ export default function App() {
   // What the board shows: a puzzle, a move being retried from the review, a move being previewed, or the game.
   let view: ComponentProps<typeof Board>
   const puzzleBoard = puzzleMode ? puzzles.board : null
-  if (playingOn) {
+  if (openingsMode) {
+    const b = openings.board
+    const side = b?.orientation ?? 'white'
+    view = {
+      game: b?.game ?? new Chess(),
+      orientation: flipped ? (side === 'white' ? 'black' : 'white') : side,
+      interactive: b?.interactive ?? false,
+      userColor: b?.userColor ?? 'w',
+      lastMove: b?.lastMove ?? null,
+      badge: null,
+      arrows: b?.arrow
+        ? [{ startSquare: b.arrow.from, endSquare: b.arrow.to, color: openings.practice ? BEST_ARROW : MOVE_ARROW }]
+        : [],
+      onMove: (uci) => (openings.practice ? openings.practiceMove(uci) : openings.explore(uci)),
+    }
+  } else if (playingOn) {
     const color = puzzleGame.userColor
     const ownChar = color === 'white' ? 'w' : 'b'
     const final = puzzleGame.plies.at(-1)
@@ -359,6 +382,9 @@ export default function App() {
           <button className={savedMode ? 'active' : ''} onClick={() => switchMode('saved')} aria-pressed={savedMode}>
             📁 Saved
           </button>
+          <button className={openingsMode ? 'active' : ''} onClick={() => switchMode('openings')} aria-pressed={openingsMode}>
+            📚 Openings
+          </button>
         </nav>
       </header>
       <main>
@@ -367,7 +393,11 @@ export default function App() {
               something to find. (Once a puzzle is finished, it follows the position you explore.) */}
           <EvalBar
             evaluation={
-              puzzleMode
+              openingsMode
+                ? openings.practice
+                  ? null
+                  : openings.evaluation
+                : puzzleMode
                 ? playingOn
                   ? (puzzleGame.evals.findLast((e) => e != null) ?? null)
                   : null
@@ -407,6 +437,8 @@ export default function App() {
               onShowSolution={puzzles.showSolution}
               onRemove={() => void puzzles.remove()}
             />
+          ) : openingsMode ? (
+            <OpeningsPanel openings={openings} />
           ) : savedMode ? (
             review && savedGames.open ? (
               <GameReview

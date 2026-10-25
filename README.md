@@ -173,6 +173,23 @@ takes you back.
 - **Where they're kept:** `progress/puzzles.json` in the project folder (git-ignored), so they last across
   games and browsers. Set `COACH_PROGRESS_DIR` to keep them somewhere else.
 
+## Learn openings
+
+**📚 Openings** (top right) is for learning openings from Lichess's list of named lines.
+
+- **Choosing one:** popular openings are grouped For White, Against 1.e4 and Against 1.d4, and the search box
+  finds any of the 3,865 named lines by name or ECO code (try "Najdorf" or "C50").
+- **Exploring:** the board shows the opening's position, with its moves above it (click one, or use **⏮ ◀ ▶ ⏭**
+  and ← → to step through). **Book moves from here** lists every move that stays in a named line, the most
+  played first, with the line it leads to and how many named lines go through it. Point at one to see it on
+  the board, click it to play it, or make any move on the board yourself. The eval bar shows the engine's view
+  of each position. Positions are matched rather than move orders, so transpositions are still in book.
+- **Practising:** **▶ Practise as White/Black** plays the opening from the start. You play your side's book
+  moves from memory; the computer plays the other side's, picking among its book moves at random with the main
+  lines most likely, so each run can go a different way. A move that isn't a book move of this opening gets
+  "Try again" (**Show me** draws the book move), and the run ends when the opening's named lines do, with a count
+  of your mistakes. Practice follows the lines' own move orders, and the eval bar stays hidden.
+
 ## Saved games
 
 **💾 Save game** at the top of the game review keeps the game, review and all, in **📁 Saved** (top right,
@@ -202,8 +219,8 @@ cd backend && .venv/bin/python -m pytest
 - `tests/test_advice.py` checks what each hint level reveals.
 - `tests/test_guide.py` checks the hints' priority for a position: the right topic, threats and checks met
   the way the engine meets them, and never the move itself.
-- `tests/test_openings.py` checks opening names and book moves, including transpositions and the traps in
-  the list.
+- `tests/test_openings.py` checks opening names and book moves (including transpositions and the traps in
+  the list), search, and the book moves offered when exploring and practising an opening.
 - `tests/test_puzzles.py` checks the puzzle schedule (with a fake clock), repeats, and saving to disk.
 - `tests/test_games.py` checks saving, listing and deleting saved games.
 
@@ -248,7 +265,7 @@ Thresholds are constants at the top of `backend/app/grading.py`.
 ```
 backend/app/
   main.py      FastAPI routes: /api/levels, /api/config, /api/analyze, /api/grade, /api/bot-move,
-               /api/hint, /api/puzzles..., /api/games..., /api/speech
+               /api/hint, /api/puzzles..., /api/games..., /api/openings..., /api/speech
   engine.py    Two Stockfish processes (analysis + opponent), position cache, null-move threat search
   grading.py   win%, material counting, classification -> MoveGrade
   facts.py     Why a bad move is bad, and whether a threat is real, from the engine's lines
@@ -256,7 +273,7 @@ backend/app/
   advice.py    Hints, by level
   guide.py     What matters in a position, for the 💡 Hint
   speech.py    The coach's voice (Joe): text to speech with Piper
-  openings.py  Opening names and book moves, from Lichess's openings list
+  openings.py  Opening names, book moves, and the opening tree for learning openings
   puzzles.py   Puzzles from your mistakes, with spaced repetition
   games.py     Games saved from the review
   levels.py    Opponent strength presets
@@ -268,9 +285,11 @@ frontend/src/
   useReviewPractice.ts  Retrying a move from the review without touching the game
   usePuzzles.ts         Puzzles from your mistakes: the current one, your tries, and its schedule
   useSavedGames.ts      Saved games: the list, the one open, saving and deleting
+  useOpenings.ts        Learning openings: choosing one, exploring its book moves, practising it
   voice.ts              Playing the coach's voice, with notation turned into words
   moveRefs.ts           Finding the moves a coach message mentions, so they can be shown on the board
-  components/           Board, EvalBar, CoachPanel, GameReview, PuzzlePanel, SavedGames, MoveList, NewGame
+  components/           Board, EvalBar, CoachPanel, GameReview, PuzzlePanel, SavedGames, OpeningsPanel,
+                        MoveList, NewGame
 ```
 
 The API is stateless. The client sends the whole move list (UCI, starting from the initial position) with every

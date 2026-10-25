@@ -26,6 +26,7 @@ from .engine import EngineService
 from .guide import plan
 from .grading import RETRY_CLASSIFICATIONS, Eval, MoveGrade, grade_move, san_line
 from .levels import DEFAULT_LEVEL, LEVELS, LEVELS_BY_ID
+from .openings import BookLine, continuations, featured, name_of, opening, practice_moves, search
 from .openings import load as load_openings, mark_book
 from .games import GameStore
 from .puzzles import Puzzle, PuzzleStore
@@ -67,6 +68,10 @@ class BotMoveIn(MovesIn):
 class HintIn(MovesIn):
     student_color: Literal["white", "black"]
     level: int = Field(1, ge=1, le=HINT_LEVELS)
+
+
+class PracticeIn(MovesIn):
+    target: list[str] = Field(max_length=100)  # the opening being practised (UCI, from the start)
 
 
 class AttemptIn(BaseModel):
@@ -381,3 +386,62 @@ async def remove_saved_game(gid: str, request: Request) -> dict:
     if not _games(request).remove(gid):
         raise HTTPException(404, "No such saved game")
     return {"removed": True}
+
+
+# -------------------------------------------------------------------------------------- openings
+
+
+@dataclass
+class OpeningLineOut:
+    name: str
+    eco: str
+    moves: list[str]  # UCI
+    pgn: str  # "1. e4 c5"
+
+
+def _line_out(line: BookLine) -> OpeningLineOut:
+    return OpeningLineOut(line.opening.name, line.opening.eco, list(line.moves), line.pgn)
+
+
+@app.get("/api/openings/featured")
+async def featured_openings() -> list[dict]:
+    """Popular openings to learn, grouped by who chooses them: {"group", "side", "lines"}."""
+    return [{"group": g, "side": side, "lines": [_line_out(line) for line in lines]} for g, side, lines in featured()]
+
+
+@app.get("/api/openings/search")
+async def search_openings(q: str = "") -> list[OpeningLineOut]:
+    """Named lines matching `q` (a name, part of one, or an ECO code)."""
+    return [_line_out(line) for line in search(q)]
+
+
+@app.post("/api/openings/explore")
+async def explore_opening(body: MovesIn) -> dict:
+    """The position after `moves`: the opening it's in, whether it's a named position itself, and the book
+    moves from it (most lines first), each with the named line it leads to."""
+    board = _replay(body.moves)
+    reached, here = opening(board), name_of(board)
+    return {
+        "opening": {"name": reached.name, "eco": reached.eco} if reached else None,
+        "named": here is not None,
+        "moves": [
+            {"uci": c.move.uci(), "san": board.san(c.move), "name": c.leads_to.name, "eco": c.leads_to.eco,
+             "lines": c.lines, "named": c.named}
+            for c in continuations(board)
+        ],
+    }
+
+
+@app.post("/api/openings/practice")
+async def practice_opening(body: PracticeIn) -> dict:
+    """Practising the opening `target`: the book moves that carry `moves` on within its lines, with how many
+    lines go each way. `on_line` is false once `moves` has left them; no moves means the line is complete."""
+    _replay(body.target)
+    board = _replay(body.moves)
+    found = practice_moves(tuple(body.target), tuple(body.moves))
+    if found is None:
+        return {"on_line": False, "moves": []}
+    return {
+        "on_line": True,
+        "moves": [{"uci": uci, "san": board.san(chess.Move.from_uci(uci)), "lines": n} for uci, n in found],
+    }

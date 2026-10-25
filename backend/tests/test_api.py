@@ -215,3 +215,21 @@ def test_saved_games(client, tmp_path):
     assert client.post("/api/games", json=bad).status_code == 400
     assert client.delete(f"/api/games/{gid}").json() == {"removed": True}
     assert client.get(f"/api/games/{gid}").status_code == 404
+
+
+def test_openings(client):
+    groups = client.get("/api/openings/featured").json()
+    assert [g["group"] for g in groups] == ["For White", "Against 1.e4", "Against 1.d4"]
+    italian = next(line for line in groups[0]["lines"] if line["name"] == "Italian Game")
+    assert italian == {"name": "Italian Game", "eco": "C50", "moves": ["e2e4", "e7e5", "g1f3", "b8c6", "f1c4"],
+                       "pgn": "1. e4 e5 2. Nf3 Nc6 3. Bc4"}
+    assert client.get("/api/openings/search", params={"q": "caro"}).json()[0]["name"] == "Caro-Kann Defense"
+
+    here = client.post("/api/openings/explore", json={"moves": italian["moves"]}).json()
+    assert here["opening"] == {"name": "Italian Game", "eco": "C50"} and here["named"]
+    assert here["moves"][0]["san"] == "Bc5" and here["moves"][0]["name"].startswith("Italian Game")
+
+    practice = client.post("/api/openings/practice", json={"target": italian["moves"], "moves": italian["moves"]}).json()
+    assert practice["on_line"] and practice["moves"][0] == {"uci": "f8c5", "san": "Bc5", "lines": practice["moves"][0]["lines"]}
+    off = client.post("/api/openings/practice", json={"target": italian["moves"], "moves": ["d2d4"]}).json()
+    assert off == {"on_line": False, "moves": []}
