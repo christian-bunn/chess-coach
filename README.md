@@ -158,7 +158,9 @@ opens it at any point during the game too.
   blunders each side played, under the name of the opening the game reached.
 - **Graph:** your winning chances move by move, with a dot on each key moment. Click it, step with
   **⏮ ◀ ▶ ⏭** under it, or use ← and →, to see the position after any move, with the move's badge on the piece
-  and the eval bar for that position.
+  and the eval bar for that position. Under the buttons, the move on the board shows whose it was, its grade
+  and the engine's best move. **Show best move** draws that on the board whenever the engine would have
+  played something else, for any move by either side, not just the key moments.
 - **Key moments:** your great moves, inaccuracies, mistakes, missed wins, blunders and missed mates, with
   the coach's comment on each. Click one to see it on the board. Point at a move in a comment (like
   12...Bxh2+) to see it on the board too. **Show best move** draws the engine's move in green next to yours

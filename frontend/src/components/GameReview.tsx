@@ -1,7 +1,9 @@
 import { useMemo, type MouseEvent, type ReactNode } from 'react'
 import { GRADE_META } from '../grades'
 import type { MoveRef } from '../moveRefs'
-import { REVIEW_GRADES, accuracy, countGrades, hadBetter, keyMoments, openingOf, sideGrades, winningChances, withoutAnswer } from '../review'
+import {
+  REVIEW_GRADES, accuracy, countGrades, hadBetter, keyMoments, notBest, openingOf, sideGrades, winningChances, withoutAnswer,
+} from '../review'
 import { moveLabel, type ReviewSnapshot } from '../useCoachGame'
 import type { Practice } from '../useReviewPractice'
 import { MoveRefText } from './MoveRefText'
@@ -10,8 +12,10 @@ interface GameReviewProps {
   review: ReviewSnapshot
   /** The move shown on the board (1 = White's first), or null for none. */
   selected: number | null
-  /** Show move `ply` on the board; `withBest` also draws the engine's better move. */
+  /** Show move `ply` on the board; `withBest` also draws the engine's best move. */
   onSelect: (ply: number | null, withBest?: boolean) => void
+  /** The board is showing the selected move with the engine's best move. */
+  withBest?: boolean
   practice: Practice | null
   onPractice: (ply: number) => void
   onTryAgain: () => void
@@ -32,6 +36,7 @@ export function GameReview({
   review,
   selected,
   onSelect,
+  withBest = false,
   practice,
   onPractice,
   onTryAgain,
@@ -122,6 +127,9 @@ export function GameReview({
             ⏭
           </button>
         </div>
+        {selected !== null && !practice && (
+          <SelectedMove review={review} ply={selected} withBest={withBest} onSelect={onSelect} />
+        )}
 
         <h3>Key moments</h3>
         {summary.moments.length === 0 ? (
@@ -173,6 +181,44 @@ export function GameReview({
         )}
       </div>
     </section>
+  )
+}
+
+/** The move on the board: whose it was, its grade, and the engine's best move when it would have played another
+ * (which can be drawn on the board), for every move of the game, not just the key moments. */
+function SelectedMove({
+  review,
+  ply,
+  withBest,
+  onSelect,
+}: {
+  review: ReviewSnapshot
+  ply: number
+  withBest: boolean
+  onSelect: GameReviewProps['onSelect']
+}) {
+  const played = review.plies[ply - 1]
+  const grade = played?.grade
+  if (!grade) return null
+  const meta = GRADE_META[grade.classification]
+  const other = notBest(grade)
+  return (
+    <div className="review-move">
+      <span className="muted">{grade.color === review.userColor ? 'You' : 'Opponent'}</span>
+      <span className="badge small" style={{ background: meta.color }}>
+        {meta.symbol}
+      </span>
+      <strong>{moveLabel(ply - 1, played.san)}</strong>
+      <span style={{ color: meta.color }}>{meta.label}</span>
+      {other ? (
+        <>
+          <span className="muted">· best was {grade.best_san}</span>
+          <button onClick={() => onSelect(ply, !withBest)}>{withBest ? 'Hide best move' : 'Show best move'}</button>
+        </>
+      ) : (
+        grade.classification !== 'forced' && <span className="muted">· the engine's move too</span>
+      )}
+    </div>
   )
 }
 

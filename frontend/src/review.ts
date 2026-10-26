@@ -63,15 +63,20 @@ export function hadBetter(grade: MoveGrade): boolean {
   return !GOOD_GRADES.has(grade.classification) && grade.classification !== 'forced' && !!grade.best_move && grade.best_move !== grade.uci
 }
 
+/** Whether the engine would have played something else (its move can then be shown, whatever the grade). */
+export function notBest(grade: MoveGrade): boolean {
+  return grade.classification !== 'forced' && !!grade.best_move && grade.best_move !== grade.uci
+}
+
 /**
  * The board for move `ply` (1 = White's first) of the reviewed game: the position after it, with its grade on
- * the piece that moved. With `withBest`, the position before it instead, with the move and the engine's better
+ * the piece that moved. With `withBest`, the position before it instead, with the move and the engine's best
  * move drawn as arrows.
  */
 export function previewMove(review: ReviewSnapshot, ply: number, withBest = false): BoardPreview {
   const played = review.plies[ply - 1]
   const grade = played.grade
-  const best = withBest && grade && hadBetter(grade) ? grade : null
+  const best = withBest && grade && notBest(grade) ? grade : null
   return {
     fen: buildGame(review.plies.slice(0, best ? ply - 1 : ply)).fen(),
     from: played.uci.slice(0, 2),
@@ -81,7 +86,7 @@ export function previewMove(review: ReviewSnapshot, ply: number, withBest = fals
     label:
       moveLabel(ply - 1, played.san) +
       (grade ? ` · ${GRADE_META[grade.classification].label}` : '') +
-      (best ? ` · better was ${best.best_san}` : ''),
+      (best ? ` · best was ${best.best_san}` : ''),
     best: best?.best_move ? { from: best.best_move.slice(0, 2), to: best.best_move.slice(2, 4) } : undefined,
   }
 }

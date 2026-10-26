@@ -447,6 +447,7 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
         review={review}
         selected={practice.practice?.ply ?? reviewView?.ply ?? null}
         onSelect={selectReviewMove}
+        withBest={reviewView?.withBest ?? false}
         practice={practice.practice}
         onPractice={(ply) => {
           setReviewView(null)

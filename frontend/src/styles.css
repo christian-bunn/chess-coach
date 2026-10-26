@@ -664,6 +664,22 @@ button.move-ref:focus-visible {
   font-size: 0.85rem;
 }
 
+/* The move selected in the review, with the engine's best move */
+.review-move {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: var(--panel-raised);
+  border-radius: 6px;
+}
+.review-move button {
+  margin-left: auto;
+  padding: 6px 12px;
+}
+
 /* Playing a friend */
 
 .new-game.friend {
