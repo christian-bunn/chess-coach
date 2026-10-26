@@ -215,8 +215,8 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
 
   useEffect(() => setInstant(false), [plies.length, friend.plies.length])
 
-  // Once a puzzle is solved (or played on after seeing the solution), the opponent plays on: a graded game against
-  // the level of your last game.
+  // Once a puzzle is solved and you choose ▶ Play on (or play on after seeing the solution), the opponent plays on: a
+  // graded game against the level of your last game.
   useEffect(() => {
     const solved = puzzles.puzzle
     if (!puzzles.playOn || !solved) return
@@ -597,6 +597,8 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
               onTryAgain={puzzles.tryAgain}
               onShowSolution={puzzles.showSolution}
               onRemove={() => void puzzles.remove()}
+              canPlayOn={puzzles.canPlayOn}
+              onPlayOn={puzzles.startPlayOn}
               onPreview={showPreview}
             />
           ) : openingsMode ? (

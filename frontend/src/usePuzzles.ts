@@ -30,8 +30,9 @@ function gameFrom(moves: string[]): Chess {
 /**
  * "Learn from your mistakes": puzzles from the student's own games, with spaced repetition. Only the first
  * answer to a puzzle counts for its schedule: found at the first try, it comes back later than last time;
- * a wrong first try, or asking for the solution, brings it back tomorrow. Once it's solved, `playOn` is the
- * game so far, for the opponent to play on from.
+ * a wrong first try, or asking for the solution, brings it back tomorrow. Once it's solved and the student chooses
+ * to play on (startPlayOn), or plays a move after seeing the solution, `playOn` is the game so far, for the
+ * opponent to play on from.
  */
 export function usePuzzles() {
   const [summary, setSummary] = useState<PuzzleSummary | null>(null)
@@ -113,7 +114,6 @@ export function usePuzzles() {
       setAttempt(result.grade)
       setStatus(result.correct ? 'right' : 'wrong')
       record(result.correct)
-      if (result.correct) setPlayOn([...puzzle.moves, uci])
     } catch {
       if (!controller.signal.aborted) {
         setTried(null)
@@ -134,6 +134,12 @@ export function usePuzzles() {
     setAttempt(null)
     setStatus('shown')
     record(false)
+  }
+
+  /** Once it's solved, the opponent plays on from your move (it waits for this, so your move keeps its badge
+   * until you're ready). */
+  const startPlayOn = () => {
+    if (puzzle && status === 'right' && tried) setPlayOn([...puzzle.moves, tried])
   }
 
   const remove = async () => {
@@ -157,6 +163,7 @@ export function usePuzzles() {
 
   return {
     summary, list, puzzle, status, attempt, scheduled, playOn, loading, board,
-    refresh, next, open, close, play, tryAgain, showSolution, remove,
+    canPlayOn: status === 'right' && playOn === null,
+    refresh, next, open, close, play, tryAgain, showSolution, startPlayOn, remove,
   }
 }

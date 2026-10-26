@@ -25,6 +25,9 @@ interface PuzzlePanelProps {
   scheduled: Puzzle | null
   loading: boolean
   playOn: PlayOn | null
+  /** Solved, and not played on yet: ▶ Play on is offered. */
+  canPlayOn: boolean
+  onPlayOn: () => void
   /** The puzzle due longest ago (or back to the list if none is due). */
   onNext: () => void
   onOpen: (id: string) => void
@@ -123,6 +126,8 @@ function PuzzleCard({
   attempt,
   scheduled,
   playOn,
+  canPlayOn,
+  onPlayOn,
   onNext,
   onTryAgain,
   onShowSolution,
@@ -201,6 +206,11 @@ function PuzzleCard({
           {finished && (
             <button className="primary" onClick={onNext}>
               Next puzzle
+            </button>
+          )}
+          {canPlayOn && (
+            <button onClick={onPlayOn} title="Your opponent plays on from here: a graded game against your last game's level">
+              ▶ Play on
             </button>
           )}
         </div>
