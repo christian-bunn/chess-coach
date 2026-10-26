@@ -186,6 +186,8 @@ takes you back.
   sets the schedule.
 - **No giveaways:** the eval bar is hidden while you solve, since it would show whether there's something to
   find.
+- **Seeing the moves:** point at any move in the puzzles' text (the one you played in the game, the moves in
+  the comment on your try, the solution) to see it on the board, as in the coach's comments.
 - **Play on:** once you find the move, the opponent plays on as a graded game (grade badges and the eval bar)
   against the level of your last game, so you can see the idea through. After **Show solution**, play the move
   shown and the opponent plays on the same way. Your game in Play isn't touched, and mistakes made playing on

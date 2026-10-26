@@ -337,7 +337,7 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
         : [],
       onMove: (uci) => (openings.practice ? openings.practiceMove(uci) : openings.explore(uci)),
     }
-  } else if (playingOn) {
+  } else if (playingOn && !preview) {
     const color = puzzleGame.userColor
     const ownChar = color === 'white' ? 'w' : 'b'
     const final = puzzleGame.plies.at(-1)
@@ -351,7 +351,7 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
       arrows: [],
       onMove: puzzleGame.actions.playMove,
     }
-  } else if (puzzleMode) {
+  } else if (puzzleMode && !preview) {
     const color = puzzles.puzzle?.color ?? 'white'
     view = {
       game: puzzleBoard?.game ?? new Chess(),
@@ -380,9 +380,10 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
       caption: practiceBoard.caption,
     }
   } else if (shown && shownGame) {
+    const facing = shown.orientation ?? (puzzleMode ? (puzzles.puzzle?.color ?? 'white') : null)
     view = {
       game: shownGame,
-      orientation,
+      orientation: facing ? (flipped ? (facing === 'white' ? 'black' : 'white') : facing) : orientation,
       interactive: shown === browse && canPlayHere && yourTurnThere,
       userColor: sideChar,
       lastMove: { from: shown.from, to: shown.to },
@@ -596,6 +597,7 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
               onTryAgain={puzzles.tryAgain}
               onShowSolution={puzzles.showSolution}
               onRemove={() => void puzzles.remove()}
+              onPreview={showPreview}
             />
           ) : openingsMode ? (
             <OpeningsPanel

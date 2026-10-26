@@ -15,6 +15,8 @@ export interface BoardPreview {
   label: string
   /** The engine's better move, drawn as a second arrow. */
   best?: { from: string; to: string }
+  /** The side the board faces for it, when it isn't the one on show (a puzzle in the list, say). */
+  orientation?: 'white' | 'black'
 }
 
 /** A move mentioned in a coach message ("11.c3"), resolved to the position it was played from. */

@@ -1,10 +1,12 @@
 import type { Classification, MoveGrade, Puzzle, PuzzleSummary } from '../api'
 import { GRADE_META } from '../grades'
+import type { MoveRef } from '../moveRefs'
 import { withoutAnswer } from '../review'
 import { fromNow } from '../time'
 import { moveLabel, type Ply } from '../useCoachGame'
 import type { PuzzleStatus } from '../usePuzzles'
 import { MoveList } from './MoveList'
+import { MoveRefText } from './MoveRefText'
 
 /** The game played on from a solved puzzle: its moves, and how it stands ("Your move.", "Checkmate. You win!"). */
 export interface PlayOn {
@@ -30,6 +32,8 @@ interface PuzzlePanelProps {
   onTryAgain: () => void
   onShowSolution: () => void
   onRemove: () => void
+  /** Show a move mentioned in the text on the board (null: back to the puzzle). */
+  onPreview: (move: MoveRef | null) => void
 }
 
 
@@ -47,7 +51,7 @@ function gradePhrase(grade: Classification): string {
 }
 
 export function PuzzlePanel(props: PuzzlePanelProps) {
-  const { summary, list, puzzle, loading, onNext, onOpen, onClose } = props
+  const { summary, list, puzzle, loading, onNext, onOpen, onClose, onPreview } = props
   return (
     <section className="puzzles" aria-label="Puzzles from your mistakes">
       <div className="review-head">
@@ -93,7 +97,12 @@ export function PuzzlePanel(props: PuzzlePanelProps) {
                       {p.opening && <span className="muted">· {p.opening}</span>}
                     </button>
                     <p className="muted">
-                      In your game: {moveLabel(p.moves.length, p.played_san)}, {gradePhrase(p.grade)}.{' '}
+                      <MoveRefText
+                        text={`In your game: ${moveLabel(p.moves.length, p.played_san)}, ${gradePhrase(p.grade)}.`}
+                        context={[...p.moves, p.played]}
+                        // The board faces the side to move in that puzzle.
+                        onPreview={(m) => onPreview(m && { ...m, orientation: p.color })}
+                      />{' '}
                       {due ? <strong className="due-now">Due now</strong> : `Next review ${fromNow(p.due)}`}
                       {p.streak >= MASTERED_STREAK && ' · mastered'}
                     </p>
@@ -118,9 +127,14 @@ function PuzzleCard({
   onTryAgain,
   onShowSolution,
   onRemove,
+  onPreview,
 }: PuzzlePanelProps & { puzzle: Puzzle }) {
   const finished = status === 'right' || status === 'shown'
   const index = puzzle.moves.length
+  // The game with the move each text is about: the one played in the game, your try, or the solution.
+  const played = [...puzzle.moves, puzzle.played]
+  const tried = attempt ? [...puzzle.moves, attempt.uci] : puzzle.moves
+  const solution = [...puzzle.moves, puzzle.best]
   const meta = GRADE_META[puzzle.grade]
   // An inaccuracy's comment ends by naming the better move, which would give the answer away.
   const attemptText = withoutAnswer(attempt?.message ?? '')
@@ -139,23 +153,34 @@ function PuzzleCard({
         {puzzle.opening && <span className="muted">· {puzzle.opening}</span>}
       </div>
       <p>
-        In your game you played <strong>{moveLabel(index, puzzle.played_san)}</strong> here, {gradePhrase(puzzle.grade)}.
-        Find a better move.
+        <MoveRefText
+          text={`In your game you played ${moveLabel(index, puzzle.played_san)} here, ${gradePhrase(puzzle.grade)}. Find a better move.`}
+          context={played}
+          onPreview={onPreview}
+        />
       </p>
       <div className="practice">
         <p>
-          {
-            {
-              thinking: 'Your move.',
-              grading: 'Checking your move…',
-              right: `Correct! ${attemptText}`,
-              wrong: attemptText,
-              shown: `The move was ${moveLabel(index, puzzle.best_san)}. It's drawn on the board: play it, and your opponent plays on.`,
-              error: "I couldn't reach the engine.",
-            }[status]
-          }
+          <MoveRefText
+            text={
+              {
+                thinking: 'Your move.',
+                grading: 'Checking your move…',
+                right: `Correct! ${attemptText}`,
+                wrong: attemptText,
+                shown: `The move was ${moveLabel(index, puzzle.best_san)}. It's drawn on the board: play it, and your opponent plays on.`,
+                error: "I couldn't reach the engine.",
+              }[status]
+            }
+            context={status === 'shown' ? solution : tried}
+            onPreview={onPreview}
+          />
         </p>
-        {finished && puzzle.comment && <p className="muted">In the game: {puzzle.comment}</p>}
+        {finished && puzzle.comment && (
+          <p className="muted">
+            <MoveRefText text={`In the game: ${puzzle.comment}`} context={played} onPreview={onPreview} />
+          </p>
+        )}
         {schedule && <p className="muted">{schedule}</p>}
         {playOn && (
           <div className="play-on">
