@@ -7,11 +7,19 @@ cd "$(dirname "$0")"
 
 npm --prefix frontend run build
 
-if ! curl -sf http://127.0.0.1:8000/api/health >/dev/null; then
+# Ask for the page itself, not just the API. The backend mounts the built page only if frontend/dist was
+# there when it started (main.py), so a server left over from ./dev.sh before the first build answers
+# /api/health but 404s the page, and the tunnel would hand your friend a "Not Found".
+if ! curl -sf http://127.0.0.1:8000/ >/dev/null; then
+  if curl -sf http://127.0.0.1:8000/api/health >/dev/null; then
+    echo "Port 8000 is taken by a server that isn't serving the page: it started before the page was" >&2
+    echo "built. Stop it (Ctrl+C where you started it) and run this again." >&2
+    exit 1
+  fi
   node backend.mjs &
   server=$!
   trap 'kill $server' EXIT
-  until curl -sf http://127.0.0.1:8000/api/health >/dev/null; do sleep 1; done
+  until curl -sf http://127.0.0.1:8000/ >/dev/null; do sleep 1; done
 fi
 
 cloudflared=$(command -v cloudflared || echo "$HOME/.local/bin/cloudflared")
