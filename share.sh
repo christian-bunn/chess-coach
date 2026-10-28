@@ -8,11 +8,16 @@ cd "$(dirname "$0")"
 npm --prefix frontend run build
 
 if ! curl -sf http://127.0.0.1:8000/api/health >/dev/null; then
-  backend/.venv/bin/uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000 &
+  node backend.mjs &
   server=$!
   trap 'kill $server' EXIT
   until curl -sf http://127.0.0.1:8000/api/health >/dev/null; do sleep 1; done
 fi
 
 cloudflared=$(command -v cloudflared || echo "$HOME/.local/bin/cloudflared")
+if [ ! -x "$cloudflared" ]; then
+  echo "cloudflared not found. Install it from" >&2
+  echo "https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/" >&2
+  exit 1
+fi
 "$cloudflared" tunnel --no-autoupdate --url http://127.0.0.1:8000

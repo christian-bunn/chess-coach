@@ -35,6 +35,28 @@ cd ../frontend
 npm install
 ```
 
+**On Windows**, run the scripts from Git Bash (it comes with Git for Windows). There's no `apt`, and a
+virtualenv keeps its programs in `Scripts/` instead of `bin/`:
+
+```bash
+# Stockfish: take the Windows build from github.com/official-stockfish/Stockfish/releases. Either put it on
+# your PATH, or save it as engine/stockfish.exe and name it in .env (the .exe is why PATH or .env is needed,
+# rather than engine/stockfish being found on its own):
+#   STOCKFISH_PATH=C:/path/to/chess-coach/engine/stockfish.exe
+
+# Backend
+cd backend
+py -m venv .venv
+.venv/Scripts/pip install -r requirements.txt
+
+# The coach's voice, Joe (optional, as above):
+.venv/Scripts/python -m piper.download_voices --download-dir ../voices en_US-joe-medium
+
+# Frontend
+cd ../frontend
+npm install
+```
+
 ## How the comments work
 
 - **Why a move is bad:** for a bad move, code works out *why* from the engine's line (`facts.why_bad`). The
@@ -245,6 +267,11 @@ moves), and **Delete** removes a game after asking. Saved games are kept in
 ```
 
 Then open http://localhost:5173. The backend listens on http://127.0.0.1:8000, and Vite forwards `/api` to it.
+On Windows, run `./dev.sh` from Git Bash.
+
+`dev.sh`, `share.sh` and `.claude/launch.json` all start the backend through `node backend.mjs`, which is the
+one place that knows whether this machine's virtualenv keeps uvicorn in `bin/` or `Scripts/`. To start the two
+halves yourself: `node backend.mjs` and `npm --prefix frontend run dev`.
 
 ## Playing with a friend
 
@@ -277,7 +304,7 @@ your friend.
 ## Tests
 
 ```bash
-cd backend && .venv/bin/python -m pytest
+cd backend && .venv/bin/python -m pytest       # Windows: .venv/Scripts/python -m pytest
 ```
 
 - `tests/test_grading.py` checks the grading rules using made-up engine output.
@@ -368,6 +395,7 @@ frontend/src/
   useFriendGame.ts      Playing a friend: the lobby, following the game, its clock and review
   components/           Board, EvalBar, GameClock, CoachPanel, GameReview, PuzzlePanel, SavedGames,
                         OpeningsPanel, MoveList, MoveRefText, NewGame, WhoIsPlaying, FriendPanel
+backend.mjs             Starts the backend with the venv's uvicorn, on any OS
 share.sh                Share the coach with a friend through a Cloudflare quick tunnel
 ```
 
