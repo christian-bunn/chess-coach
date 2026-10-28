@@ -8,8 +8,8 @@
   --accent: #81b64c;
   --accent-hover: #95c95e;
   --danger: #e2574c;
-  /* Leave room for the eval bar, gaps and a ~550px side panel. */
-  --board-size: min(calc(100vh - 130px), 820px, calc(100vw - 640px));
+  /* Leave room for the eval bar, the rows of taken pieces, gaps and a ~550px side panel. */
+  --board-size: min(calc(100vh - 190px), 820px, calc(100vw - 640px));
   color-scheme: dark;
   font-size: 19px;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -142,12 +142,35 @@ main {
 }
 /* A timed game: a slightly smaller board, so the clocks above and below it fit on the screen. */
 .board-area.timed {
-  --board-size: min(calc(100vh - 230px), 820px, calc(100vw - 640px));
+  --board-size: min(calc(100vh - 290px), 820px, calc(100vw - 640px));
 }
 .board-column {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* What each side has taken, in a row between the board and that side's clock. */
+.captures {
+  display: flex;
+  align-items: center;
+  /* There even when nothing has been taken, so the board doesn't jump on the first capture. */
+  min-height: 22px;
+  padding: 0 2px;
+}
+.taken-piece {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  /* Overlapped a little, so a row of eight pawns still fits beside a narrow board. */
+  margin-right: -4px;
+}
+.material-edge {
+  margin-left: 10px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 .game-clock {
   display: flex;
@@ -206,6 +229,10 @@ main {
   border-radius: 4px;
   overflow: hidden;
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+  /* Dragging a piece shouldn't select the coordinates or flash a tap highlight on a phone. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .board-caption {
@@ -491,6 +518,7 @@ button.move-ref:focus-visible {
 
 .controls {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 .controls button {
@@ -1034,5 +1062,90 @@ button.move-ref:focus-visible {
   }
   .coach-feed-wrap {
     min-height: 260px;
+  }
+}
+
+/* Phones: a board as wide as the screen, buttons big enough to tap, and nothing off the side. */
+@media (max-width: 760px) {
+  :root {
+    font-size: 16px;
+    /* The board, the eval bar beside it and the page's padding, in the width the screen has. */
+    --board-size: min(calc(100vw - 38px), calc(100vh - 230px), 560px);
+    /* dvh leaves out the browser's own bars, which vh counts in; phones without it keep the line above. */
+    --board-size: min(calc(100vw - 38px), calc(100dvh - 230px), 560px);
+  }
+  .app {
+    padding: 8px 8px 20px;
+  }
+  header {
+    gap: 8px 12px;
+    margin-bottom: 8px;
+  }
+  header h1 {
+    font-size: 1.25rem;
+  }
+  /* The sections go under the title, two rows of them, rather than off the side of the screen. */
+  .mode-switch {
+    width: 100%;
+    margin-left: 0;
+    flex-wrap: wrap;
+  }
+  .mode-switch button {
+    flex: 1 0 auto;
+    padding: 10px 12px;
+  }
+  .board-area {
+    gap: 4px;
+  }
+  .board-area.timed {
+    --board-size: min(calc(100vw - 38px), calc(100vh - 330px), 560px);
+    --board-size: min(calc(100vw - 38px), calc(100dvh - 330px), 560px);
+  }
+  .eval-bar {
+    width: 20px;
+  }
+  .eval-label {
+    font-size: 11px;
+  }
+  .side {
+    padding: 10px 8px;
+  }
+  /* Two rows of two, instead of four squeezed buttons. */
+  .controls button {
+    flex: 1 0 40%;
+  }
+  /* Big enough to hit with a thumb. */
+  .mode-switch button,
+  .controls button,
+  .move-nav button,
+  .coach-actions button,
+  .row button,
+  .segmented button {
+    min-height: 44px;
+  }
+  .move-nav button {
+    padding: 10px 8px;
+  }
+  .coach-feed {
+    max-height: min(45vh, 340px);
+  }
+  .coach-feed-wrap {
+    min-height: 180px;
+  }
+  .challenges li {
+    flex-wrap: wrap;
+  }
+  .time-controls button {
+    flex: 1 0 30%;
+  }
+  .review-table {
+    font-size: 0.85rem;
+  }
+  .review-table th,
+  .review-table td {
+    padding: 3px 4px;
+  }
+  .who-is-playing {
+    padding: 16px;
   }
 }

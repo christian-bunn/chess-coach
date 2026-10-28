@@ -165,6 +165,8 @@ export function useFriendGame(active: boolean) {
   const game = useMemo(() => buildGame((view?.moves ?? []).map((uci) => ({ uci, san: '', grade: null }))), [view?.moves])
   const you: Side | null = view?.you ?? null
   const myTurn = view?.status === 'playing' && you !== null && game.turn() === you[0]
+  // A take-back needs a move of yours on the board: your last one, and your opponent's reply to it if there is one.
+  const moveToTakeBack = view?.status === 'playing' && view.moves.length >= (myTurn ? 2 : 1)
 
   const move = (uci: string) => {
     if (!view || !myTurn || viewPly !== null) return
@@ -198,6 +200,7 @@ export function useFriendGame(active: boolean) {
 
   const resign = () => view && act(() => api.friends.resign(view.id))
   const draw = (action: 'offer' | 'accept' | 'decline') => view && act(() => api.friends.draw(view.id, action))
+  const takeback = (action: 'offer' | 'accept' | 'decline') => view && act(() => api.friends.takeback(view.id, action))
 
   const plies: Ply[] = useMemo(
     () => (view?.moves ?? []).map((uci, i) => ({ uci, san: view!.sans[i], grade: view!.grades?.[i] ?? null })),
@@ -261,12 +264,14 @@ export function useFriendGame(active: boolean) {
     reviewOpen: reviewOpen && review !== null,
     openReview: () => setReviewOpen(true),
     closeReview: () => setReviewOpen(false),
+    moveToTakeBack,
     challenge,
     join,
     leave,
     move,
     resign,
     draw,
+    takeback,
   }
 }
 

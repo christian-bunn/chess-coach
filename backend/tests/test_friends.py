@@ -120,6 +120,71 @@ def test_a_draw_offer(games):
     assert game.result == {"reason": "agreed", "winner": None}
 
 
+def test_a_take_back_gives_the_asker_their_move_again(games):
+    game = started(games)
+    play(games, game, "e2e4", "e7e5", "g1f3")
+    games.takeback("ann", game.id, "offer")
+    assert game.takeback_offer == "white"
+    with pytest.raises(GameError, match="no take-back"):
+        games.takeback("ann", game.id, "accept")  # not your own request
+    games.takeback("bob", game.id, "accept")
+    assert game.moves == ["e2e4", "e7e5"] and game.sans == ["e4", "e5"]
+    assert game.grades == [None, None] and len(game.evals) == 3
+    assert game.takeback_offer is None
+    games.move("ann", game.id, "d2d4")  # White's move once more
+
+
+def test_a_take_back_after_the_reply_takes_both_moves_off(games):
+    game = started(games)
+    play(games, game, "e2e4", "e7e5", "g1f3", "b8c6")
+    games.takeback("ann", game.id, "offer")
+    games.takeback("bob", game.id, "accept")
+    assert game.moves == ["e2e4", "e7e5"]
+
+
+def test_a_take_back_can_be_declined_or_withdrawn_by_moving(games):
+    game = started(games)
+    play(games, game, "e2e4")
+    games.takeback("ann", game.id, "offer")
+    with pytest.raises(GameError, match="asked already"):
+        games.takeback("ann", game.id, "offer")
+    games.takeback("bob", game.id, "decline")
+    assert game.takeback_offer is None and game.moves == ["e2e4"]
+    games.takeback("ann", game.id, "offer")
+    games.move("bob", game.id, "e7e5")  # moving withdraws it
+    assert game.takeback_offer is None
+
+
+def test_you_cant_take_back_a_move_you_havent_made(games):
+    game = started(games)
+    with pytest.raises(GameError, match="take back"):
+        games.takeback("ann", game.id, "offer")
+    games.move("ann", game.id, "e2e4")
+    with pytest.raises(GameError, match="take back"):
+        games.takeback("bob", game.id, "offer")  # Black is yet to move
+
+
+def test_a_take_back_puts_the_clocks_back(games, clock):
+    game = started(games, time_control="3+2")
+    clock.now += 5
+    games.move("ann", game.id, "e2e4")  # 3:00 - 5s + 2s
+    clock.now += 10
+    games.move("bob", game.id, "e7e5")  # 3:00 - 10s + 2s
+    clock.now += 3
+    games.takeback("bob", game.id, "offer")
+    games.takeback("ann", game.id, "accept")
+    # As they stood when e5 was played: Bob is still charged the 10s he spent on it, but not its increment.
+    assert game.clock.white == 177_000 and game.clock.black == 170_000
+    assert game.clock.running == "black" and game.clocks == [(175_000, 180_000)]
+
+
+def test_a_take_back_isnt_on_offer_once_the_game_is_over(games):
+    game = started(games)
+    play(games, game, "f2f3", "e7e5", "g2g4", "d8h4")  # checkmate
+    with pytest.raises(GameError, match="over"):
+        games.takeback("ann", game.id, "offer")
+
+
 def test_the_clocks(games, clock):
     game = started(games, time_control="3+2")
     clock.now += 5

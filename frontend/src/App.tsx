@@ -1,7 +1,9 @@
 import { Chess } from 'chess.js'
 import { useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
 import { api, type CoachConfig, type Eval, type Level } from './api'
+import { captures } from './captures'
 import { Board } from './components/Board'
+import { Captures } from './components/Captures'
 import { CoachPanel } from './components/CoachPanel'
 import { EvalBar } from './components/EvalBar'
 import { FriendPanel } from './components/FriendPanel'
@@ -441,6 +443,13 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
     }
   }
 
+  // The sides as the board faces them: yours at the bottom, your opponent's at the top.
+  const bottom = view.orientation
+  const top = bottom === 'white' ? 'black' : 'white'
+  // What each side has taken, from the position on the board (so it follows a puzzle or a move being looked back at).
+  const taken = captures(view.game)
+  const takenBy = (side: 'white' | 'black') => (side === 'white' ? taken.byWhite : taken.byBlack)
+
   // The game review's panel: of the game in Play, a game against a friend, or a saved game.
   const reviewPanel = (props: Pick<ComponentProps<typeof GameReview>, 'onClose' | 'closeLabel' | 'subtitle' | 'actions'>) =>
     review && (
@@ -558,18 +567,11 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
             orientation={view.orientation}
           />
           <div className="board-column">
-            {clock && (
-              <GameClock
-                clock={clock}
-                side={view.orientation === 'white' ? 'black' : 'white'}
-                label={clockLabel(view.orientation === 'white' ? 'black' : 'white')}
-                toMove={toMove === (view.orientation === 'white' ? 'black' : 'white')}
-              />
-            )}
+            {clock && <GameClock clock={clock} side={top} label={clockLabel(top)} toMove={toMove === top} />}
+            <Captures pieces={takenBy(top)} by={top} edge={taken.edge} />
             <Board {...view} animate={!instant} />
-            {clock && (
-              <GameClock clock={clock} side={view.orientation} label={clockLabel(view.orientation)} toMove={toMove === view.orientation} />
-            )}
+            <Captures pieces={takenBy(bottom)} by={bottom} edge={taken.edge} />
+            {clock && <GameClock clock={clock} side={bottom} label={clockLabel(bottom)} toMove={toMove === bottom} />}
           </div>
         </div>
         <aside className="side">

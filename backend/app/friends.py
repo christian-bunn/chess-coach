@@ -106,6 +106,9 @@ class FriendGame:
     clock: Clock | None = None
     result: dict | None = None  # {"reason": "checkmate", "resigned", "timeout", ..., "winner": "white"/"black"/None}
     draw_offer: Color | None = None  # who offered one
+    takeback_offer: Color | None = None  # who asked to take their last move back
+    # What both sides had left (ms) as each move was played, so a take-back can put the clocks back with it.
+    clocks: list[tuple[float, float]] = field(default_factory=list)
     ended: float | None = None
     version: int = 0
     seen: dict[str, float] = field(default_factory=dict)  # player id -> when their page last asked
@@ -127,7 +130,8 @@ class FriendGame:
         self._changed = asyncio.Event()
 
     def end(self, reason: str, winner: Color | None, now: float) -> None:
-        self.status, self.result, self.draw_offer, self.ended = "over", {"reason": reason, "winner": winner}, None, now
+        self.status, self.result, self.ended = "over", {"reason": reason, "winner": winner}, now
+        self.draw_offer = self.takeback_offer = None
         if self.clock:
             self.clock.stop(now)
 
@@ -256,8 +260,9 @@ class FriendGames:
         game.moves.append(uci)
         game.grades.append(None)
         game.evals.append(None)
-        game.draw_offer = None
+        game.draw_offer = game.takeback_offer = None
         if game.clock:
+            game.clocks.append((game.clock.left("white", now), game.clock.left("black", now)))
             game.clock.moved(color, now)
         outcome = board.outcome(claim_draw=True)
         if outcome:
@@ -288,6 +293,56 @@ class FriendGames:
             game.draw_offer = None
         else:
             raise GameError(400, f"Unknown draw action {action!r}")
+        game.changed()
+        return game
+
+    def takeback(self, pid: str, gid: str, action: str) -> FriendGame:
+        """Ask to take back your last move, or answer the other player's request. Accepting rewinds the game to
+        just before the asker's last move, so it's their turn again. Only while the game is going: once it's over,
+        it stays over."""
+        game, color = self._player(pid, gid)
+        theirs = game.takeback_offer == other(color)
+        if action == "offer":
+            if game.takeback_offer is not None:
+                raise GameError(409, "Answer their take-back first" if theirs else "You've asked already")
+            self._to_take_back(game, color)  # says so now, rather than leaving an offer that couldn't be met
+            game.takeback_offer = color
+        elif action == "accept":
+            if not theirs:
+                raise GameError(409, "There's no take-back to accept")
+            return self._rewind(game, other(color))
+        elif action == "decline":
+            if not theirs:
+                raise GameError(409, "There's no take-back to decline")
+            game.takeback_offer = None
+        else:
+            raise GameError(400, f"Unknown take-back action {action!r}")
+        game.changed()
+        return game
+
+    def _to_take_back(self, game: FriendGame, color: Color) -> int:
+        """How many moves come off for `color` to have their last move back: their own, and the reply to it if
+        there has been one."""
+        to_move: Color = "white" if len(game.moves) % 2 == 0 else "black"
+        count = 1 if to_move != color else 2
+        if count > len(game.moves):
+            raise GameError(409, "You haven't made a move to take back")
+        return count
+
+    def _rewind(self, game: FriendGame, color: Color) -> FriendGame:
+        """Take `color`'s last move off the board (with the reply to it), and the clocks back to where they were."""
+        at = len(game.moves) - self._to_take_back(game, color)
+        del game.moves[at:]
+        del game.sans[at:]
+        del game.grades[at:]
+        del game.evals[at + 1 :]
+        game.draw_offer = game.takeback_offer = None
+        if game.clock:
+            # The clocks as that move was played: whoever asked doesn't get the time they spent on it back, and
+            # the increments the moves coming off earned go with them.
+            game.clock.white, game.clock.black = game.clocks[at]
+            del game.clocks[at:]
+            game.clock.start(color, self.clock())
         game.changed()
         return game
 
@@ -361,5 +416,6 @@ class FriendGames:
             else None,
             "result": game.result,
             "draw_offer": game.draw_offer,
+            "takeback_offer": game.takeback_offer,
             "version": game.version,
         }

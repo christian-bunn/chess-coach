@@ -120,7 +120,9 @@ class ChallengeIn(BaseModel):
     help: Literal["graded", "unassisted"]
 
 
-class DrawIn(BaseModel):
+class OfferIn(BaseModel):
+    """A draw or take-back: offering one, or answering the other player's."""
+
     action: Literal["offer", "accept", "decline"]
 
 
@@ -561,13 +563,16 @@ def _grade_in_background(request: Request, game: FriendGame, index: int) -> None
         board = chess.Board()
         for uci in game.moves[:index]:
             board.push_uci(uci)
-        move = chess.Move.from_uci(game.moves[index])
+        uci = game.moves[index]
+        move = chess.Move.from_uci(uci)
         mover = game.white if board.turn == chess.WHITE else game.black
         try:
             grade = await _grade(app_.state.engines, board, move)
         except Exception:
             log.exception("Couldn't grade move %d of friend game %s", index + 1, game.id)
             return
+        if game.moves[index : index + 1] != [uci]:
+            return  # taken back while it was being graded
         grade.message = describe_user_move(grade, board)
         if mover:
             _save_as_puzzle(app_.state.players.progress(mover).puzzles, board, move, grade, game.moves[:index])
@@ -660,10 +665,19 @@ async def friend_resign(gid: str, request: Request) -> dict:
 
 
 @app.post("/api/friends/games/{gid}/draw")
-async def friend_draw(gid: str, body: DrawIn, request: Request) -> dict:
+async def friend_draw(gid: str, body: OfferIn, request: Request) -> dict:
     pid, _ = _who(request)
     friends = _friends(request)
     return friends.view(_friendly(lambda: friends.draw(pid, gid, body.action)), pid)
+
+
+@app.post("/api/friends/games/{gid}/takeback")
+async def friend_takeback(gid: str, body: OfferIn, request: Request) -> dict:
+    """Ask your opponent to let you take your last move back, or answer their request. Accepting puts the game
+    back to just before their last move, and the pending grades go with it."""
+    pid, _ = _who(request)
+    friends = _friends(request)
+    return friends.view(_friendly(lambda: friends.takeback(pid, gid, body.action)), pid)
 
 
 # ------------------------------------------------------------------------------------------ page

@@ -143,6 +143,8 @@ function Game({ friend, onReview, onFlip }: FriendPanelProps) {
   const opponent = friend.opponent ?? 'Your opponent'
   const over = view.status === 'over'
   const theirOffer = view.draw_offer !== null && view.draw_offer !== friend.you
+  const yourTakeback = view.takeback_offer !== null && view.takeback_offer === friend.you
+  const theirTakeback = view.takeback_offer !== null && view.takeback_offer !== friend.you
   const at = friend.viewing ?? friend.plies.length
   return (
     <section className="coach friend" aria-label={`Game against ${opponent}`}>
@@ -173,6 +175,23 @@ function Game({ friend, onReview, onFlip }: FriendPanelProps) {
                 Accept
               </button>
               <button onClick={() => void friend.draw('decline')}>Decline</button>
+            </div>
+          </div>
+        )}
+        {!over && yourTakeback && (
+          <p className="muted">You asked to take your move back. It stands until {opponent} answers.</p>
+        )}
+        {!over && theirTakeback && (
+          <div className="bubble hint">
+            {/* They get their move back; if they're the one to move, your reply to it comes off with it. */}
+            <p>
+              {opponent} asks to take their last move back{friend.myTurn ? '' : ', and your reply with it'}.
+            </p>
+            <div className="coach-actions">
+              <button className="primary" onClick={() => void friend.takeback('accept')}>
+                Accept
+              </button>
+              <button onClick={() => void friend.takeback('decline')}>Decline</button>
             </div>
           </div>
         )}
@@ -207,6 +226,19 @@ function Game({ friend, onReview, onFlip }: FriendPanelProps) {
                 title={theirOffer ? 'Accept their offer' : 'Offer a draw'}
               >
                 ½ Offer draw
+              </button>
+              <button
+                onClick={() => void friend.takeback('offer')}
+                disabled={!friend.moveToTakeBack || view.takeback_offer !== null}
+                title={
+                  theirTakeback
+                    ? 'Answer their request first'
+                    : friend.myTurn
+                      ? 'Ask to take your last move back, and their reply to it'
+                      : 'Ask to take your last move back'
+                }
+              >
+                ↩ Take back
               </button>
             </>
           )}

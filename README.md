@@ -138,6 +138,13 @@ and 15 | 10, where the second number is the seconds added after every move. The 
   backend's reply also includes the analysis for grading), not for waiting while the coach speaks.
 - Games played on from a puzzle or an opening are untimed.
 
+## What each side has taken
+
+Between the board and each side's clock is a row of the pieces that side has captured, biggest first, and
+**+3** next to whoever is ahead on material (a knight, here). It's worked out from the pieces on the board, so
+it follows whatever the board shows: the game, a puzzle that starts in the middle of one, or an earlier
+position you've stepped back to. A pawn that promoted counts as the piece it became, not as one you lost.
+
 ## Stepping through the game
 
 **⏮ ◀ ▶ ⏭** above the move list, the ← and → keys, or clicking a move in the list show the board as it was
@@ -297,6 +304,13 @@ your friend.
   **🏳 Resign** asks first. Afterwards you each get the game review (and can save it), and your mistakes
   become your own puzzles. A **!** on 👥 Friend means it's your move there while you're elsewhere. Games
   live in the server's memory, so restarting it ends them.
+- **↩ Take back:** asks your opponent to let you take your last move back; they see it and can accept or
+  decline, and moving instead withdraws it. Accepting puts the board back to just before that move (with
+  their reply to it, if they'd already answered), so it's your move again, and the clocks go back with it —
+  except the time you spent on the move, which stays spent. It's only on offer while the game is going: once
+  it's over, it's over.
+- **On a phone:** the page is one column there, with the board full width and the panel under it, so your
+  friend can play from the link on their phone.
 - **Needs** `cloudflared` on your PATH or in `~/.local/bin` (from
   [Cloudflare's releases](https://github.com/cloudflare/cloudflared/releases)). Your engine does the work for
   both of you, which is fine for a couple of players.
@@ -319,8 +333,8 @@ cd backend && .venv/bin/python -m pytest       # Windows: .venv/Scripts/python -
 - `tests/test_puzzles.py` checks the puzzle schedule (with a fake clock), repeats, and saving to disk.
 - `tests/test_games.py` checks saving, listing and deleting saved games.
 - `tests/test_repertoire.py` checks the opening repertoire's schedule (with a fake clock).
-- `tests/test_friends.py` checks games between two players: the lobby, turns, endings, draw offers and the
-  clocks (with a fake clock).
+- `tests/test_friends.py` checks games between two players: the lobby, turns, endings, draw offers,
+  take-backs and the clocks (with a fake clock).
 
 ## How moves are graded
 
@@ -377,7 +391,7 @@ backend/app/
   games.py     Games saved from the review
   repertoire.py  Your opening repertoire, with spaced repetition
   players.py   Each player's progress, kept apart by name
-  friends.py   Games between two players: the lobby, turns, clocks and endings
+  friends.py   Games between two players: the lobby, turns, clocks, take-backs and endings
   levels.py    Opponent strength presets
   config.py    Settings from env vars (COACH_ANALYSIS_DEPTH, COACH_ENGINE_THREADS, ...)
 backend/data/openings/  Lichess's openings list (a.tsv ... e.tsv: ECO code, name, moves)
@@ -389,12 +403,13 @@ frontend/src/
   useSavedGames.ts      Saved games: the list, the one open, saving and deleting
   useOpenings.ts        Learning openings: choosing one, exploring its book moves, practising it
   clock.ts              Time controls and the chess clock
+  captures.ts           What each side has taken, from the pieces left on the board
   voice.ts              Playing the coach's voice, with notation turned into words
   moveRefs.ts           Finding the moves a coach message mentions, so they can be shown on the board
   player.ts             Who's playing (their name picks their progress on the server)
   useFriendGame.ts      Playing a friend: the lobby, following the game, its clock and review
-  components/           Board, EvalBar, GameClock, CoachPanel, GameReview, PuzzlePanel, SavedGames,
-                        OpeningsPanel, MoveList, MoveRefText, NewGame, WhoIsPlaying, FriendPanel
+  components/           Board, EvalBar, GameClock, Captures, CoachPanel, GameReview, PuzzlePanel,
+                        SavedGames, OpeningsPanel, MoveList, MoveRefText, NewGame, WhoIsPlaying, FriendPanel
 backend.mjs             Starts the backend with the venv's uvicorn, on any OS
 share.sh                Share the coach with a friend through a Cloudflare quick tunnel
 ```

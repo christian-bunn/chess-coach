@@ -245,6 +245,8 @@ export interface FriendGameView {
   clock: { white: number; black: number; increment: number; running: 'white' | 'black' | null } | null
   result: { reason: string; winner: 'white' | 'black' | null } | null
   draw_offer: 'white' | 'black' | null
+  /** Who has asked to take their last move back, and is waiting on the other player. */
+  takeback_offer: 'white' | 'black' | null
   version: number
 }
 
@@ -312,5 +314,8 @@ export const api = {
     resign: (id: string) => request<FriendGameView>(`/friends/games/${id}/resign`, {}),
     draw: (id: string, action: 'offer' | 'accept' | 'decline') =>
       request<FriendGameView>(`/friends/games/${id}/draw`, { action }),
+    /** Ask to take your last move back, or answer your opponent's request. */
+    takeback: (id: string, action: 'offer' | 'accept' | 'decline') =>
+      request<FriendGameView>(`/friends/games/${id}/takeback`, { action }),
   },
 }
