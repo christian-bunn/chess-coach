@@ -145,6 +145,25 @@ Between the board and each side's clock is a row of the pieces that side has cap
 it follows whatever the board shows: the game, a puzzle that starts in the middle of one, or an earlier
 position you've stepped back to. A pawn that promoted counts as the piece it became, not as one you lost.
 
+## Board sounds
+
+Pieces make a sound as they land: one recording for a move, a harder one for a take, and its own for a check,
+a castle, a promotion, and the start and the end of the game. **🔊** in the header turns them off and on, and
+it remembers which you chose. (The 🔊 in the game's own controls is a different switch: that one is the
+coach's voice reading comments aloud.)
+
+The files are in `frontend/public/sounds`, about 50 kB in all. They're fetched as the page loads and decoded
+when you first hear one, and played through the Web Audio API rather than `<audio>` elements, so a sound lands
+the moment its move does and two can overlap without cutting each other off (`frontend/src/sounds.ts`). The
+board plays them wherever a move lands — your game, a game against a friend, a puzzle — but not while you're
+stepping back through moves or pointing at one to preview it, which is the same rule the animation follows.
+
+Which sound a move gets: the end of the game speaks over everything, then a check, then what kind of move it
+was. So a capture that gives check sounds like a check, and a checkmate sounds like the end of the game.
+
+The sound files are third-party assets added by the repository owner, and carry their own terms rather than
+this project's.
+
 ## Stepping through the game
 
 **⏮ ◀ ▶ ⏭** above the move list, the ← and → keys, or clicking a move in the list show the board as it was
@@ -419,6 +438,7 @@ backend/app/
   levels.py    Opponent strength presets
   config.py    Settings from env vars (COACH_ANALYSIS_DEPTH, COACH_ENGINE_THREADS, ...)
 backend/data/openings/  Lichess's openings list (a.tsv ... e.tsv: ECO code, name, moves)
+frontend/public/sounds/  The board's sounds (move, capture, check, castle, promote, game start and end)
 frontend/src/
   useCoachGame.ts       Game state: turns, grading, retry / take-back flow, hints, key moments
   review.ts             Game review: accuracy, grade counts, key moments
@@ -428,6 +448,7 @@ frontend/src/
   useOpenings.ts        Learning openings: choosing one, exploring its book moves, practising it
   clock.ts              Time controls and the chess clock
   captures.ts           What each side has taken, from the pieces left on the board
+  sounds.ts             Which sound a move makes, and playing it through the Web Audio API
   voice.ts              Playing the coach's voice, with notation turned into words
   moveRefs.ts           Finding the moves a coach message mentions, so they can be shown on the board
   player.ts             Who's playing (their name picks their progress on the server)

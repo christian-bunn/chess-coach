@@ -6,6 +6,7 @@ import {
   TIME_CONTROLS, type Clock,
 } from './clock'
 import { GOOD_GRADES } from './grades'
+import { play } from './sounds'
 import { speak, stopSpeaking, whenQuiet } from './voice'
 
 export type Side = 'white' | 'black'
@@ -411,6 +412,7 @@ export function useCoachGame(onPuzzleSaved?: () => void, paused = false) {
   ) => {
     cancelPending()
     stopSpeaking()
+    play('start')
     replies.current.abort()
     replies.current = new AbortController()
     const userColor: Side = color === 'random' ? (Math.random() < 0.5 ? 'white' : 'black') : color

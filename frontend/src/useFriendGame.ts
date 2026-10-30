@@ -2,6 +2,7 @@ import { Chess } from 'chess.js'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, type Classification, type Eval, type FriendGameView, type FriendHelp, type FriendLobby } from './api'
 import type { Clock } from './clock'
+import { play } from './sounds'
 import { buildGame, moveLabel, type Ply, type ReviewSnapshot, type Side } from './useCoachGame'
 
 /** What the board shows in a game against a friend. */
@@ -149,7 +150,11 @@ export function useFriendGame(active: boolean) {
   const challenge = (color: Side | 'random', timeControl: string, help: FriendHelp) =>
     act(() => api.friends.challenge({ color, time_control: timeControl, help }))
 
-  const join = (id: string) => act(() => api.friends.join(id))
+  const join = async (id: string) => {
+    const joined = await act(() => api.friends.join(id))
+    if (joined) play('start')
+    return joined
+  }
 
   /** Back to the lobby (after a game, or taking back your challenge). */
   const leave = async () => {
@@ -161,6 +166,15 @@ export function useFriendGame(active: boolean) {
     latest.current = null
     void refreshLobby()
   }
+
+  // Someone has taken up your challenge. (Joining one makes its own sound, in `join`; coming back to a game
+  // already in progress makes none, which is why this watches for the change rather than the state.)
+  const wasWaiting = useRef(false)
+  useEffect(() => {
+    const before = wasWaiting.current
+    wasWaiting.current = view?.status === 'waiting'
+    if (before && view?.status === 'playing') play('start')
+  }, [view?.status])
 
   const game = useMemo(() => buildGame((view?.moves ?? []).map((uci) => ({ uci, san: '', grade: null }))), [view?.moves])
   const you: Side | null = view?.you ?? null

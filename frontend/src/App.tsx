@@ -16,6 +16,7 @@ import { PuzzlePanel } from './components/PuzzlePanel'
 import { SavedGames, matchup, savedOn } from './components/SavedGames'
 import type { BoardPreview } from './moveRefs'
 import { openingOf, previewMove } from './review'
+import { setSoundsOn, soundsOn } from './sounds'
 import { buildGame, moveLabel, useCoachGame, type CoachMode, type RetryMode, type ReviewSnapshot } from './useCoachGame'
 import { useFriendGame } from './useFriendGame'
 import { useOpenings } from './useOpenings'
@@ -51,6 +52,8 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
   const [backendError, setBackendError] = useState<string | null>(null)
   const [showSetup, setShowSetup] = useState(false)
   const [flipped, setFlipped] = useState(false)
+  // The board's own sounds (sounds.ts). Up here with the other switches, since they belong to every section.
+  const [sounds, setSounds] = useState(soundsOn)
   // A move from a coach message or a review comment being shown on the board instead of the game.
   const [preview, setPreview] = useState<BoardPreview | null>(null)
   // Previews (and going back from one) snap instantly; real moves animate again.
@@ -536,6 +539,17 @@ export default function App({ player, onSwitchPlayer }: { player: string; onSwit
             ) : (
               !friend.view && !!friend.lobby?.challenges.length && <span className="count">{friend.lobby.challenges.length}</span>
             )}
+          </button>
+          <button
+            className="icon"
+            onClick={() => {
+              setSoundsOn(!sounds)
+              setSounds(!sounds)
+            }}
+            title={sounds ? 'Board sounds are on: moves, takes and checks' : 'Board sounds are off'}
+            aria-pressed={sounds}
+          >
+            {sounds ? '🔊' : '🔇'}
           </button>
           <button className="player-button" onClick={onSwitchPlayer} title="Switch player">
             👤 {player}

@@ -1,8 +1,9 @@
 import type { Chess, Square } from 'chess.js'
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Chessboard, defaultPieces, type Arrow } from 'react-chessboard'
 import type { Classification } from '../api'
 import { GRADE_META } from '../grades'
+import { playMove } from '../sounds'
 
 interface BoardProps {
   game: Chess
@@ -49,6 +50,26 @@ export function Board({
     setSelected(null)
     setPromotion(null)
   }, [fen, interactive])
+
+  // A move makes its sound here, the one place every mode's board comes through. Previews and stepping back
+  // through a game arrive with the animation off and stay silent. `sounded` is what holds a move that lands
+  // while a preview is still up (animation off for that render, on for the next) to a single sound.
+  const shown = useRef<{ before: string | null; fen: string | null; sounded: boolean }>({
+    before: null,
+    fen: null,
+    sounded: false,
+  })
+  useEffect(() => {
+    const state = shown.current
+    if (state.fen !== fen) {
+      state.before = state.fen
+      state.fen = fen
+      state.sounded = false
+    }
+    if (state.sounded || !state.before || !lastMove || !animate) return
+    state.sounded = true
+    playMove(state.before, game, lastMove.from, lastMove.to)
+  }, [fen, animate])
 
   const legalFrom = (square: Square) => game.moves({ square, verbose: true })
 
