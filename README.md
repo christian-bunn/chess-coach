@@ -287,12 +287,13 @@ halves yourself: `node backend.mjs` and `npm --prefix frontend run dev`.
 ```
 
 This builds the page, starts the backend if it isn't running (it serves the built page too, so everything
-is on port 8000), and opens a free [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/do-more-with-tunnels/trycloudflare/)
-to it. No account is needed. It prints a link like `https://some-random-words.trycloudflare.com` to send
-your friend.
+is on port 8000), and puts it on the internet. With Tailscale it prints the same link every time (see
+"A link they can bookmark" below); without it, a free
+[Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/do-more-with-tunnels/trycloudflare/)
+gives a fresh `https://some-random-words.trycloudflare.com` to send your friend, no account needed.
 
-- **While it runs:** the link works while `share.sh` and your computer are on. Ctrl+C stops sharing. The
-  link changes every time you start it, so send the new one.
+- **While it runs:** the link works while the coach's server and your computer are on. Ctrl+C stops sharing.
+  A quick tunnel's link changes every time you start it, so send the new one; a Tailscale link doesn't.
 - **Who's playing:** the first time anyone opens the coach, it asks for their name. Each name has its own
   puzzles, saved games and repertoire, in `progress/players/<name>/`. **👤 Your name** at the top right
   switches player. Names aren't passwords: typing someone's name opens their progress.
@@ -311,9 +312,32 @@ your friend.
   it's over, it's over.
 - **On a phone:** the page is one column there, with the board full width and the panel under it, so your
   friend can play from the link on their phone.
-- **Needs** `cloudflared` on your PATH or in `~/.local/bin` (from
-  [Cloudflare's releases](https://github.com/cloudflare/cloudflared/releases)). Your engine does the work for
-  both of you, which is fine for a couple of players.
+- **Needs** Tailscale, or `cloudflared` on your PATH or in `~/.local/bin` (from
+  [Cloudflare's releases](https://github.com/cloudflare/cloudflared/releases)) for the random-link fallback.
+  Your engine does the work for both of you, which is fine for a couple of players.
+
+## A link they can bookmark
+
+A quick tunnel's link is new every time, which is fine for one evening and a nuisance for a regular game.
+[Tailscale Funnel](https://tailscale.com/kb/1223/funnel) gives this computer a name of its own that never
+changes, free and without buying a domain. Once, here:
+
+```bash
+winget install Tailscale.Tailscale   # macOS: brew install --cask tailscale; Linux: tailscale.com/download
+tailscale up                         # opens a browser to sign in
+```
+
+`./share.sh` does the rest: it turns the funnel on for port 8000 and prints the link, something like
+`https://your-pc.tail1a2b.ts.net`. The first run prints a link to turn Funnel on for your tailnet and waits
+there until you've clicked it; after that it carries straight on, and later runs go through without asking.
+
+- **It stays on** across reboots. The funnel is a setting inside Tailscale, not something `share.sh` holds
+  open, so the link your friends bookmarked keeps working.
+- **They don't need Tailscale.** A funnel is public: any browser can open it. Only this computer signs in.
+- **The server still has to be running.** The link is live while `./share.sh` (or `node backend.mjs`) is;
+  without it your friends get a connection error rather than the coach.
+- **To see or stop it:** `tailscale funnel status` shows what's being served, and
+  `tailscale funnel --https=443 off` takes it off the internet again.
 
 ## Tests
 
@@ -411,7 +435,7 @@ frontend/src/
   components/           Board, EvalBar, GameClock, Captures, CoachPanel, GameReview, PuzzlePanel,
                         SavedGames, OpeningsPanel, MoveList, MoveRefText, NewGame, WhoIsPlaying, FriendPanel
 backend.mjs             Starts the backend with the venv's uvicorn, on any OS
-share.sh                Share the coach with a friend through a Cloudflare quick tunnel
+share.sh                Share the coach with a friend, through Tailscale or a Cloudflare quick tunnel
 ```
 
 The API is stateless. The client sends the whole move list (UCI, starting from the initial position) with every
