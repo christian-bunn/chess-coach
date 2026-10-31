@@ -222,6 +222,14 @@ const INITIAL: GameState = {
 // The most the opponent's clock is charged for one move. The backend's reply also includes the analysis for grading
 // the move, which isn't the opponent thinking.
 const MAX_BOT_THINK_MS = 1500
+/**
+ * The least time the opponent's reply takes to arrive. The engine's search collapses in positions that are
+ * already decided — a thin endgame, and above all the move after a new queen appears — and a reply that lands
+ * the instant you let go of your own piece reads as a glitch rather than as an opponent. The wait runs
+ * alongside the search, so it only shows where the engine came back sooner than this.
+ */
+const MIN_BOT_REPLY_MS = 600
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /**
  * `onPuzzleSaved`: called when one of the student's moves has been saved as a puzzle.
@@ -309,15 +317,15 @@ export function useCoachGame(onPuzzleSaved?: () => void, paused = false) {
     update((s) => ({ ...s, phase: 'bot', failed: null }))
     const { plies, level } = stateRef.current
     try {
-      // The opponent waits until the comment on the student's move has been read, so the board stays in step
-      // with the voice. Its move is worked out in the meantime.
+      // The opponent waits for the comment on the student's move to be read, so the board stays in step with
+      // the voice, and for MIN_BOT_REPLY_MS, so it never answers instantly. Its move is worked out meanwhile.
       const asked = Date.now()
       let thought = 0
       const reply = api.botMove(plies.map((p) => p.uci), level?.id ?? 'casual', signal).then((g) => {
         thought = Math.min(Date.now() - asked, MAX_BOT_THINK_MS)
         return g
       })
-      const [grade] = await Promise.all([reply, whenQuiet(signal)])
+      const [grade] = await Promise.all([reply, whenQuiet(signal), wait(MIN_BOT_REPLY_MS)])
       if (signal.aborted) return
       const botSide: Side = stateRef.current.userColor === 'white' ? 'black' : 'white'
       const clock = stateRef.current.clock
