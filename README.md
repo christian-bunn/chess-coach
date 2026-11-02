@@ -354,7 +354,12 @@ there until you've clicked it; after that it carries straight on, and later runs
   open, so the link your friends bookmarked keeps working.
 - **They don't need Tailscale.** A funnel is public: any browser can open it. Only this computer signs in.
 - **The server still has to be running.** The link is live while `./share.sh` (or `node backend.mjs`) is;
-  without it your friends get a connection error rather than the coach.
+  without it your friends get a 502 from Tailscale rather than the coach. Note that `share.sh` holds the
+  server as a child process and stops it on the way out, so closing that terminal takes the coach down too.
+- **Starting it by itself (Windows).** A scheduled task named **Chess Coach** runs `node backend.mjs` twenty
+  seconds after you log in, so the link survives a reboot without anyone opening a terminal. It serves
+  whatever is already built in `frontend/dist`, so run `./share.sh` after changing the code. To take it off
+  the machine: `Unregister-ScheduledTask -TaskName "Chess Coach"` in PowerShell.
 - **To see or stop it:** `tailscale funnel status` shows what's being served, and
   `tailscale funnel --https=443 off` takes it off the internet again.
 
