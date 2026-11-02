@@ -26,11 +26,15 @@ def fake_analysis(board: chess.Board, *lines: tuple[str, chess.engine.Score]) ->
 
 
 def grade(board: chess.Board, san: str, before: Analysis, after_score: chess.engine.Score, reply: str | None = None):
+    """`reply`: the continuation after the move, as SAN separated by spaces ("Bxc6 dxc6" for a trade)."""
     move = board.parse_san(san)
     after_board = board.copy()
     after_board.push(move)
-    after_lines = (Line(after_score, (after_board.parse_san(reply),)),) if reply else ()
-    after = Analysis(after_board.turn, after_score, after_lines)
+    probe, pv = after_board.copy(), []
+    for reply_san in reply.split() if reply else []:
+        pv.append(probe.parse_san(reply_san))
+        probe.push(pv[-1])
+    after = Analysis(after_board.turn, after_score, (Line(after_score, tuple(pv)),) if pv else ())
     return grade_move(board, move, before, after)
 
 
@@ -203,11 +207,38 @@ class TestOpponentComments:
         g = grade(board, "Qf3", before, Cp(-40), reply="Nd4")
         assert describe_opponent_move(g, board) == "Your opponent missed a chance! They had checkmate in one with 4.Qxf7#."
 
-    def test_a_positional_mistake(self):
+    def test_a_positional_mistake_says_where_the_game_stood_and_what_they_needed(self):
+        # Nothing is won outright, so the only honest facts are the swing and their better move. Saying the
+        # game *was* level is the point: "you're better now" alone doesn't tell you the move cost anything.
         board = board_after("e4", "e5", "Nf3", "Nc6")
         g = grade(board, "a3", fake_analysis(board, ("Bb5", Cp(40))), Cp(150), "d5")
-        assert g.classification in ("mistake", "blunder")
-        assert describe_opponent_move(g, board).endswith(" 3.a3 gives you the better position. Can you find the best move?")
+        assert g.classification == "mistake"
+        assert describe_opponent_move(g, board) == (
+            "Mistake by your opponent. The game was level, and 3.a3 gives you the better position. "
+            "3.Bb5 was much stronger for them. Can you find the best move? It's a quiet one."
+        )
+
+    def test_where_you_stood_is_left_out_when_you_were_winning_anyway(self):
+        board = board_after("e4", "e5", "Nf3", "Nc6")
+        g = grade(board, "a3", fake_analysis(board, ("Bb5", Cp(-500))), Cp(900), "d5")
+        assert g.classification == "mistake"
+        text = describe_opponent_move(g, board)
+        assert text.startswith("Mistake by your opponent. 3.a3 gives you a winning position.")
+        assert "level" not in text and "You were" not in text
+
+    def test_the_move_that_punishes_it_is_a_capture(self):
+        # A trade nets nothing, so there is no material reason to give: the move is just bad.
+        board = board_after("e4", "e5", "Nf3", "Nc6", "Bb5")
+        g = grade(board, "a6", fake_analysis(board, ("Nf6", Cp(-20))), Cp(150), "Bxc6 dxc6")
+        assert g.material_change == 0
+        text = describe_opponent_move(g, board)
+        assert text.endswith("Can you find the best move? It's a capture.")
+        assert "Bxc6" not in text  # which capture is still the student's to find
+
+    def test_the_move_that_punishes_it_is_a_check(self):
+        board = board_after("f4", "e5")
+        g = grade(board, "a3", fake_analysis(board, ("fxe5", Cp(30))), Cp(300), "Qh4+")
+        assert describe_opponent_move(g, board).endswith("Can you find the best move? It's a check.")
 
     def test_an_inaccuracy_names_their_better_move(self):
         board = board_after("e4", "e5", "Nf3", "Nc6")

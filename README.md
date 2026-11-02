@@ -411,7 +411,12 @@ There are also four special cases:
 - **Retry offer:** you get one for a mistake, a missed win or a blunder. The *Offer a retry after* setting
   controls which of those trigger it.
 
-The opponent's moves are graded too. When the opponent blunders, the coach tells you there's something to find.
+The opponent's moves are graded too, and a bad one is explained as far as the engine honestly can. Where
+something is won outright the comment names it ("their queen on g4, where you can win it"). Where nothing
+is — the move is just bad — it says where the game stood before it, which is the part that makes a blunder a
+blunder, and what they should have played instead; both moves can be pointed at to see them on the board. The
+move that punishes it is never named, but the coach says whether it's a check, a capture or a quiet move, so
+you know where to look. Press *Hint* for more.
 
 Thresholds are constants at the top of `backend/app/grading.py`.
 

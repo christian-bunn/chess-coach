@@ -149,6 +149,39 @@ def _your_standing(win: float) -> str:
     return "gives you a way back into the game"
 
 
+# Above this, the student was winning before the move too, so saying where they stood adds nothing.
+ALREADY_WINNING = 80.0
+
+
+def _your_standing_before(win: float) -> str:
+    """Where the student stood before the opponent's move, from their win% then."""
+    if win >= 60:
+        return "You were better"
+    if win >= 45:
+        return "The game was level"
+    if win >= 20:
+        return "You were worse"
+    return "You were losing"
+
+
+def _find_it(grade: MoveGrade, board: chess.Board) -> str:
+    """Ask for the move that punishes it, with the one thing about it that says where to look. Which kind of
+    move it is narrows the search without naming it, and "quiet" is worth saying too: it stops the student
+    hunting for a tactic that isn't there."""
+    if not grade.refutation:
+        return "Can you find the best move?"
+    after = board.copy(stack=False)
+    after.push(chess.Move.from_uci(grade.uci))
+    reply = after.parse_san(grade.refutation[0])
+    if after.gives_check(reply):
+        kind = "a check"
+    elif after.is_capture(reply):
+        kind = "a capture"
+    else:
+        kind = "a quiet one"
+    return f"Can you find the best move? It's {kind}."
+
+
 def _your_chance(reason: Reason | None, grade: MoveGrade, board: chess.Board) -> str:
     """What the opponent's bad move gives the student, without naming the move that takes it: that's for the
     student to find (the hints can help)."""
@@ -171,7 +204,14 @@ def _your_chance(reason: Reason | None, grade: MoveGrade, board: chess.Board) ->
         return f"After {move} you can win {material_phrase(reason.amount)}. Can you find how?"
     if grade.classification == "inaccuracy":
         return f"{_best(grade, board)} was better for them."
-    return f"{move} {_your_standing(100 - grade.win_after)}. Can you find the best move?"
+    # Nothing concrete was won: the move is bad for reasons the engine can only put a number on. Saying where
+    # the game stood before it, and what they should have played, is as far as that number honestly goes.
+    was = 100 - grade.win_before
+    gives = f"{move} {_your_standing(100 - grade.win_after)}"
+    standing = f"{gives}." if was >= ALREADY_WINNING else f"{_your_standing_before(was)}, and {gives}."
+    best = _best(grade, board)
+    better = f"{best} was much stronger for them." if best else ""
+    return " ".join(filter(None, [standing, better, _find_it(grade, board)]))
 
 
 def describe_opponent_move(grade: MoveGrade, board: chess.Board) -> str | None:
